@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -349,11 +349,249 @@ def save_message(body: ChatMessage):
     db.save_chat_message(body.role, body.content)
     return {"ok": True}
 
-@app.get("/api/chat/context")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AI CHAT — STREAMING WITH SERVER-SIDE TOOL EXECUTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TOOLS_SPEC = """
+You have access to the following TOOLS. When you want to use one, emit EXACTLY
+this pattern (nothing else on the same line):
+
+<tool_call>{"tool": "TOOL_NAME", "args": {...}}</tool_call>
+
+After each tool call you will receive a <tool_result> block. You may call
+multiple tools in sequence. Then give your final natural-language reply.
+
+Available tools:
+
+add_task(title, description?, category?, priority?, due_date?)
+  priority: Low|Medium|High|Urgent   due_date: YYYY-MM-DD
+
+update_task_status(task_id, status)
+  status: Todo|In Progress|Done
+
+add_course(title, provider?, url?, category?, status?, notes?)
+  status: Planned|In Progress|Completed|Dropped
+
+add_project(name, description?, color?, start_date?, target_date?)
+
+update_target(target_id, current_value)
+
+log_work_hours(duration_minutes, description?, category?, date?)
+  date: YYYY-MM-DD (default today)
+
+query_data(sql)
+  Run a read-only SELECT on the planner database.
+  Tables: tasks, projects, work_sessions, targets, courses, resumes
+"""
+
+_SYSTEM_PROMPT = """You are an intelligent personal productivity assistant embedded in a desktop planner app. You have full knowledge of the user's professional profile, career history, skills, tasks, projects, courses, and goals shown in the context below. Use this to give personalised, relevant answers.
+
+MANDATORY RULES — follow without exception:
+0. CORE RULE — only call write tools (add_task, add_course, add_project, log_work_hours, update_*) when the user EXPLICITLY asks to add, create, log, or record something. For casual conversation or questions — respond in plain text ONLY.
+1. When explicitly asked to ADD items → call the tool IMMEDIATELY. Do NOT list them as text first.
+2. NEVER output raw SQL in your reply text. SQL only goes inside <tool_call> blocks.
+3. NEVER just describe what you WOULD do — DO it with a tool call, then confirm in plain English.
+4. After every tool call you MUST wait for the <tool_result>, then continue.
+
+{tools}
+
+Current planner snapshot:
+{context}
+"""
+
+import re as _re2
+import requests as _req
+
+class ChatStreamRequest(BaseModel):
+    messages: list[ChatMessage]
+    model: str = "llama3.2"
+    include_context: bool = True
+
+def _run_tool_server(tool: str, args: dict) -> str:
+    """Execute a tool call against the database and return a result string."""
+    try:
+        if tool == "add_task":
+            db.add_task(title=args["title"],
+                        description=args.get("description", ""),
+                        category=args.get("category", "General"),
+                        priority=args.get("priority", "Medium"),
+                        due_date=args.get("due_date"))
+            return f"Task added: \"{args['title']}\""
+
+        elif tool == "update_task_status":
+            db.update_task_status(int(args["task_id"]), args["status"])
+            return f"Task {args['task_id']} status → {args['status']}"
+
+        elif tool == "add_course":
+            db.add_course(title=args["title"],
+                          provider=args.get("provider", ""),
+                          url=args.get("url", ""),
+                          category=args.get("category", "Learning"),
+                          status=args.get("status", "Planned"),
+                          notes=args.get("notes", ""))
+            return f"Course added: \"{args['title']}\""
+
+        elif tool == "add_project":
+            db.add_project(name=args["name"],
+                           description=args.get("description", ""),
+                           color=args.get("color", "#3b82f6"),
+                           start_date=args.get("start_date"),
+                           target_date=args.get("target_date"))
+            return f"Project added: \"{args['name']}\""
+
+        elif tool == "update_target":
+            db.update_target(int(args["target_id"]),
+                             current_value=float(args["current_value"]))
+            return f"Target {args['target_id']} updated to {args['current_value']}"
+
+        elif tool == "log_work_hours":
+            mins  = int(args["duration_minutes"])
+            d_str = args.get("date", date.today().isoformat())
+            desc  = args.get("description", "")
+            cat   = args.get("category", "Work")
+            db.add_work_session(f"{d_str}T09:00:00", f"{d_str}T09:{mins:02d}:00",
+                                mins, desc, None, cat, d_str)
+            return f"Logged {mins} min of '{cat}' on {d_str}"
+
+        elif tool == "query_data":
+            sql = args.get("sql", "").strip()
+            if not sql.upper().startswith("SELECT"):
+                return "Only SELECT queries are allowed."
+            cols, rows = db.execute_raw(sql)
+            if not rows:
+                return "No rows returned."
+            header = " | ".join(cols)
+            lines  = [header, "-" * min(len(header), 80)]
+            for r in rows[:15]:
+                lines.append(" | ".join(str(r.get(c, "")) for c in cols))
+            if len(rows) > 15:
+                lines.append(f"...({len(rows)} total, showing 15)")
+            return "\n".join(lines)
+
+        else:
+            return f"Unknown tool: {tool}"
+    except Exception as exc:
+        return f"Tool error: {exc}"
+
+@app.post("/api/chat/stream")
+def chat_stream(body: ChatStreamRequest):
+    """Stream AI response with server-side tool execution."""
+    today = date.today()
+
+    # Build context
+    if body.include_context:
+        ctx_resp = get_context()
+        context  = ctx_resp["context"]
+    else:
+        context = "(context sharing off)"
+
+    system_content = _SYSTEM_PROMPT.format(tools=_TOOLS_SPEC, context=context)
+    messages = [{"role": "system", "content": system_content}]
+    messages += [{"role": m.role, "content": m.content} for m in body.messages[-14:]]
+
+    def stream():
+        import json as _j
+        conversation = list(messages)
+        MAX_TOOL_ROUNDS = 8
+
+        for _round in range(MAX_TOOL_ROUNDS):
+            # Call Ollama
+            try:
+                resp = _req.post(
+                    "http://localhost:11434/api/chat",
+                    json={"model": body.model, "messages": conversation, "stream": True},
+                    stream=True, timeout=120,
+                )
+                resp.raise_for_status()
+            except _req.exceptions.ConnectionError:
+                yield "\n⚠ Could not connect to Ollama. Run: `ollama serve`"
+                return
+            except _req.exceptions.HTTPError as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 404:
+                    yield f"\n⚠ Model '{body.model}' not found. Run: `ollama pull {body.model}`"
+                else:
+                    yield f"\n⚠ Ollama error {status}"
+                return
+            except Exception as e:
+                yield f"\n⚠ Error: {e}"
+                return
+
+            # Collect the full response, streaming text through
+            full_text = []
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    data  = _j.loads(line)
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        full_text.append(chunk)
+                        yield chunk
+                    if data.get("done"):
+                        break
+                except Exception:
+                    pass
+
+            assistant_text = "".join(full_text)
+            conversation.append({"role": "assistant", "content": assistant_text})
+
+            # Check for tool calls in the response
+            tool_calls = _re2.findall(r"<tool_call>(.*?)</tool_call>", assistant_text, _re2.DOTALL)
+            if not tool_calls:
+                # No tools — we're done
+                # Persist to DB
+                user_msg = next((m["content"] for m in reversed(body.messages) if m.role == "user"), None)
+                if user_msg:
+                    db.save_chat_message("user", user_msg)
+                db.save_chat_message("assistant", assistant_text)
+                return
+
+            # Execute each tool and feed results back
+            for tc in tool_calls:
+                try:
+                    call   = _j.loads(tc.strip())
+                    tool   = call.get("tool", "")
+                    args   = call.get("args", {})
+                    result = _run_tool_server(tool, args)
+                except Exception as exc:
+                    result = f"Tool parse error: {exc}"
+
+                tool_result_msg = f"<tool_result>{result}</tool_result>"
+                yield f"\n\n`[tool: {tool} → {result[:80]}]`\n\n"
+                conversation.append({"role": "user", "content": tool_result_msg})
+
+            # Loop to let the AI respond to tool results
+
+        yield "\n\n[Max tool rounds reached]"
+
+    return StreamingResponse(stream(), media_type="text/plain")
 def get_context():
     """Return the planner snapshot used to ground the AI."""
     today = date.today()
     lines = [f"Today: {today.strftime('%A, %B %d, %Y')}"]
+
+    # Professional profile
+    profile = db.get_profile()
+    if profile and profile.get("name"):
+        p = dict(profile)
+        lines.append(f"\nUser Profile:")
+        lines.append(f"  Name: {p.get('name','')}")
+        if p.get('role'):        lines.append(f"  Role: {p['role']}")
+        if p.get('company'):     lines.append(f"  Company: {p['company']}")
+        if p.get('experience_years'): lines.append(f"  Experience: {p['experience_years']} years")
+
+    # Skills
+    skills_rows = db.get_skills()
+    if skills_rows:
+        cats: dict = {}
+        for r in skills_rows:
+            cats.setdefault(r["category"], []).append(r["skill"])
+        lines.append("\nSkills:")
+        for cat, skls in cats.items():
+            lines.append(f"  {cat}: {', '.join(skls)}")
 
     tasks = db.get_tasks()
     if tasks:
@@ -374,7 +612,7 @@ def get_context():
     if courses:
         lines.append(f"\nCourses ({len(courses)}):")
         for c in courses[:10]:
-            lines.append(f"  [id={c['id']} {c['status']}] {c['title']}")
+            lines.append(f"  [id={c['id']} {c['status']}] {c['title']} ({c.get('provider','')})")
 
     weekly   = db.get_weekly_hours()
     week_min = sum(r["total_minutes"] for r in weekly)
@@ -386,7 +624,7 @@ def get_context():
         lines.append(f"\nYear Targets ({today.year}):")
         for t in targets:
             pct = round(t["current_value"] / t["target_value"] * 100) if t["target_value"] > 0 else 0
-            lines.append(f"  [id={t['id']}] {t['title']}: {pct}%")
+            lines.append(f"  [id={t['id']}] {t['title']}: {t['current_value']}/{t['target_value']} {t.get('unit','')} ({pct}%)")
 
     return {"context": "\n".join(lines)}
 
