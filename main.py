@@ -2,6 +2,7 @@
 Personal Planner & Progress Tracker
 Desktop app: FastAPI (port 7432) + React frontend displayed via PyWebView.
 System-tray support via pystray — close button hides to tray, tray icon shows/quits.
+Single-instance: only one copy can run; a second launch brings the existing window to focus.
 """
 import sys
 import os
@@ -25,6 +26,32 @@ import pystray
 import webview
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── Single-instance lock ───────────────────────────────────────────────────────
+# Port 7431 is the inter-process "show window" channel.
+# First instance binds it and listens; subsequent instances connect, send "show", then exit.
+_LOCK_PORT = 7431
+
+def _try_become_primary() -> socket.socket | None:
+    """Try to bind the lock port. Returns the server socket if we are the first instance, else None."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+    try:
+        srv.bind(("127.0.0.1", _LOCK_PORT))
+        srv.listen(5)
+        return srv
+    except OSError:
+        srv.close()
+        return None
+
+def _signal_existing_instance():
+    """Connect to the already-running instance and tell it to show its window."""
+    try:
+        s = socket.create_connection(("127.0.0.1", _LOCK_PORT), timeout=2)
+        s.sendall(b"show")
+        s.close()
+    except OSError:
+        pass
 
 
 def create_app_image(size: int = 256) -> Image.Image:
@@ -92,7 +119,7 @@ def ensure_icon_file(base_dir: str) -> str:
 class PersonalPlannerApp:
     PORT = 7432
 
-    def __init__(self):
+    def __init__(self, lock_srv: socket.socket):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         log_path = os.path.join(base_dir, 'planner.log')
         logging.basicConfig(
@@ -109,6 +136,12 @@ class PersonalPlannerApp:
 
         # Pre-generate icon file (used by tray and window)
         ensure_icon_file(base_dir)
+
+        # Check if the frontend has been built
+        dist_index = os.path.join(base_dir, "frontend", "dist", "index.html")
+        if not os.path.exists(dist_index):
+            self._show_setup_error(base_dir)
+            return
 
         # Start FastAPI backend in a background thread
         self._start_api()
@@ -136,10 +169,69 @@ class PersonalPlannerApp:
         # Due-date notifications (background, checks every hour)
         threading.Thread(target=self._notification_loop, daemon=True).start()
 
+        # Listen for "show" signals from any future second instances
+        threading.Thread(target=self._lock_listener, args=(lock_srv,), daemon=True).start()
+
         # Start PyWebView — blocks main thread until all windows are destroyed
         webview.start(debug=False)
 
+    def _lock_listener(self, srv: socket.socket):
+        """Accept connections from second instances and show the window when signalled."""
+        srv.settimeout(1.0)
+        while True:
+            try:
+                conn, _ = srv.accept()
+                data = conn.recv(16)
+                conn.close()
+                if data.strip() == b"show":
+                    self._show_window()
+            except socket.timeout:
+                continue
+            except Exception:
+                break
+
     # ── API startup ────────────────────────────────────────────────────────
+
+    def _show_setup_error(self, base_dir: str):
+        """Show a helpful HTML page when the React frontend hasn't been built yet."""
+        html = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Personal Planner — Setup Required</title>
+<style>
+  body { background:#06060f; color:white; font-family:'Segoe UI',sans-serif;
+         display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+  .box { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+         border-radius:20px; padding:48px 56px; max-width:560px; text-align:center; }
+  h1 { color:#a78bfa; margin-bottom:16px; }
+  p  { color:#9ca3af; line-height:1.7; margin-bottom:12px; }
+  code { background:rgba(124,58,237,0.2); border:1px solid rgba(124,58,237,0.3);
+         color:#c4b5fd; padding:2px 8px; border-radius:6px; font-size:14px; }
+  .step { background:rgba(255,255,255,0.03); border-radius:12px; padding:16px 20px;
+          text-align:left; margin-top:24px; }
+  .step p { margin:6px 0; }
+</style></head>
+<body><div class="box">
+  <h1>⚡ Setup Required</h1>
+  <p>The app UI needs to be built before first use.</p>
+  <div class="step">
+    <p><strong>Option 1 (easiest)</strong> — Double-click <code>install.bat</code></p>
+    <p style="color:#6b7280;font-size:13px">Requires Node.js 18+ from nodejs.org</p>
+  </div>
+  <div class="step">
+    <p><strong>Option 2</strong> — Run in a terminal:</p>
+    <p><code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code></p>
+  </div>
+  <p style="margin-top:24px;font-size:13px;color:#6b7280">
+    Then restart the app. This only needs to be done once.
+  </p>
+</div></body></html>"""
+        self.window = webview.create_window(
+            "Personal Planner — Setup Required",
+            html=html,
+            width=700,
+            height=460,
+        )
+        webview.start(debug=False)
 
     def _start_api(self):
         """Start uvicorn in a daemon thread; wait until the port is open."""
@@ -201,4 +293,9 @@ class PersonalPlannerApp:
 
 
 if __name__ == "__main__":
-    PersonalPlannerApp()
+    lock_srv = _try_become_primary()
+    if lock_srv is None:
+        # Another instance is already running — tell it to show its window and exit
+        _signal_existing_instance()
+        sys.exit(0)
+    PersonalPlannerApp(lock_srv)
