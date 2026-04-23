@@ -34,20 +34,9 @@ app.add_middleware(
 # ── Serve built React frontend ─────────────────────────────────────────────────
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
 
+# Static assets mount (must be before catch-all, but assets/ prefix is specific enough)
 if os.path.exists(FRONTEND_DIST):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
-
-    @app.get("/")
-    def serve_index():
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
-
-    @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
-        """Catch-all: let React Router handle client-side routes."""
-        file_path = os.path.join(FRONTEND_DIST, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -522,3 +511,24 @@ def analyze_resume(body: AnalyzeRequest):
             yield f"\n⚠ Error: {e}"
 
     return StreamingResponse(stream(), media_type="text/plain")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SPA FALLBACK — must be LAST so all /api/* routes are matched first
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if os.path.exists(FRONTEND_DIST):
+    @app.get("/")
+    def serve_index():
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        """Catch-all: serve React app for any non-API route."""
+        # Never intercept /api/ paths — return 404 so the error is clear
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail=f"API endpoint not found: /{full_path}")
+        file_path = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
