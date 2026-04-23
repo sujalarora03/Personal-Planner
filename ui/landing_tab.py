@@ -152,6 +152,20 @@ class LandingTab:
         greet_frame = ctk.CTkFrame(ov, fg_color="transparent")
         greet_frame.grid(row=0, column=0, sticky="ew", padx=52, pady=(52, 0))
         greet_frame.grid_columnconfigure(0, weight=1)
+        greet_frame.grid_columnconfigure(1, weight=0)
+
+        # Version badge — top right
+        version_badge = ctk.CTkFrame(
+            greet_frame, fg_color="#1a0d3d",
+            corner_radius=12,
+            border_width=1, border_color="#7c3aed"
+        )
+        version_badge.grid(row=0, column=1, rowspan=2, sticky="ne", pady=(4, 0))
+        ctk.CTkLabel(
+            version_badge, text="v0.5 BETA",
+            font=("Segoe UI", 10, "bold"), text_color="#a78bfa",
+            padx=12, pady=6
+        ).pack()
 
         today_str = date.today().strftime("%A, %B %d, %Y")
         ctk.CTkLabel(
