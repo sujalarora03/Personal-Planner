@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -517,6 +517,40 @@ def analyze_resume(body: AnalyzeRequest):
 # SPA FALLBACK — must be LAST so all /api/* routes are matched first
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_SETUP_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Personal Planner — Setup Required</title>
+<style>
+  body { background:#06060f; color:white; font-family:'Segoe UI',sans-serif;
+         display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+  .box { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+         border-radius:20px; padding:48px 56px; max-width:580px; text-align:center; }
+  h1  { color:#a78bfa; margin:0 0 16px; font-size:28px; }
+  p   { color:#9ca3af; line-height:1.7; margin-bottom:10px; }
+  code{ background:rgba(124,58,237,0.2); border:1px solid rgba(124,58,237,0.3);
+        color:#c4b5fd; padding:3px 10px; border-radius:6px; font-size:14px; font-family:monospace; }
+  .step{ background:rgba(255,255,255,0.03); border-radius:12px; padding:18px 22px;
+         text-align:left; margin-top:18px; }
+  .step strong { color:white; }
+  .step p { margin:6px 0; font-size:14px; }
+  .note { margin-top:28px; font-size:13px; color:#6b7280; }
+</style></head>
+<body><div class="box">
+  <h1>⚡ Setup Required</h1>
+  <p>The app UI has not been built yet. This only needs to be done once.</p>
+  <div class="step">
+    <p><strong>Step 1 &mdash;</strong> Install <a href="https://nodejs.org" style="color:#a78bfa">Node.js 18+</a> if you haven't already</p>
+  </div>
+  <div class="step">
+    <p><strong>Step 2 &mdash;</strong> Double-click <code>install.bat</code> in the PersonalPlanner folder</p>
+    <p style="color:#6b7280;font-size:13px">This installs all Python &amp; Node packages and builds the UI automatically.</p>
+  </div>
+  <div class="step">
+    <p><strong>Step 3 &mdash;</strong> Run <code>run.bat</code> to start the app</p>
+  </div>
+  <p class="note">Close this window first, then run install.bat</p>
+</div></body></html>"""
+
 if os.path.exists(FRONTEND_DIST):
     @app.get("/")
     def serve_index():
@@ -525,10 +559,18 @@ if os.path.exists(FRONTEND_DIST):
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         """Catch-all: serve React app for any non-API route."""
-        # Never intercept /api/ paths — return 404 so the error is clear
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail=f"API endpoint not found: /{full_path}")
         file_path = os.path.join(FRONTEND_DIST, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+else:
+    # dist/ not built yet — serve a helpful setup page for EVERY route
+    @app.get("/")
+    @app.get("/{full_path:path}")
+    def setup_required(full_path: str = ""):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=503, detail="App not set up yet — run install.bat first")
+        return HTMLResponse(content=_SETUP_HTML)

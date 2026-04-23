@@ -137,18 +137,16 @@ class PersonalPlannerApp:
         # Pre-generate icon file (used by tray and window)
         ensure_icon_file(base_dir)
 
-        # Check if the frontend has been built
-        dist_index = os.path.join(base_dir, "frontend", "dist", "index.html")
-        if not os.path.exists(dist_index):
-            self._show_setup_error(base_dir)
-            return
-
-        # Start FastAPI backend in a background thread
+        # Always start FastAPI — api.py serves a setup page if dist/ is missing
         self._start_api()
+
+        # Determine window title based on whether the frontend is ready
+        dist_index = os.path.join(base_dir, "frontend", "dist", "index.html")
+        title = "Personal Planner" if os.path.exists(dist_index) else "Personal Planner — Setup Required"
 
         # Create PyWebView window (doesn't open until webview.start())
         self.window = webview.create_window(
-            "Personal Planner",
+            title,
             f"http://127.0.0.1:{self.PORT}",
             width=1280,
             height=780,
