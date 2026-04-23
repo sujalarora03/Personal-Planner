@@ -422,12 +422,12 @@ class CareerTab:
     # ── Skill extraction ───────────────────────────────────────────────────
 
     def _extract_and_save_skills(self, content: str):
-        """Try AI extraction first; fall back to keyword matching."""
+        """Try AI extraction first; fall back to keyword matching. Only saves if skills found."""
         skills = self._extract_via_ai(content)
         if not skills:
-            skills = self._extract_via_keywords(content)
-        if skills:
-            self.db.save_skills(skills, source="resume")
+            # AI either failed or returned empty — keyword skills already saved, don't overwrite
+            return
+        self.db.save_skills(skills, source="resume")
 
     def _extract_via_ai(self, content: str) -> dict | None:
         """Ask Ollama to return a JSON skill map. Returns None on any failure."""
@@ -465,9 +465,11 @@ class CareerTab:
                 return None
             import json as _json
             parsed = _json.loads(m.group())
-            # Validate it's a dict of lists
+            # Validate it's a dict of lists with at least one non-empty list
             if isinstance(parsed, dict):
-                return {k: v for k, v in parsed.items() if isinstance(v, list)}
+                filtered = {k: v for k, v in parsed.items() if isinstance(v, list) and v}
+                if filtered:
+                    return filtered
         except Exception:
             pass
         return None

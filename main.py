@@ -1,10 +1,12 @@
 """
 Personal Planner & Progress Tracker
-Runs as a Windows system-tray application.
-Double-click the tray icon to open the planner window.
+Desktop app: FastAPI (port 7432) + React frontend displayed via PyWebView.
+System-tray support via pystray — close button hides to tray, tray icon shows/quits.
 """
 import sys
 import os
+import time
+import socket
 import threading
 import logging
 
@@ -18,16 +20,11 @@ except Exception:
     except Exception:
         pass
 
-import matplotlib
-matplotlib.use("TkAgg")          # must be set before any tab imports
-import customtkinter as ctk
 from PIL import Image, ImageDraw
 import pystray
+import webview
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import Database
-from ui.main_window import MainWindow
-from ui.profile_tab import ProfileSetupDialog
 
 
 def create_app_image(size: int = 256) -> Image.Image:
@@ -93,132 +90,114 @@ def ensure_icon_file(base_dir: str) -> str:
 
 
 class PersonalPlannerApp:
+    PORT = 7432
+
     def __init__(self):
-        # Logging — write warnings+ to planner.log next to main.py
-        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'planner.log')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        log_path = os.path.join(base_dir, 'planner.log')
         logging.basicConfig(
             filename=log_path, level=logging.WARNING,
             format='%(asctime)s %(levelname)s %(name)s: %(message)s',
             encoding='utf-8'
         )
 
+        # Init DB
+        from database import Database
         self.db = Database()
         self.db.init_db()
-        self.db.backup()          # daily backup on startup
+        self.db.backup()
 
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        # Pre-generate icon file (used by tray and window)
+        ensure_icon_file(base_dir)
 
-        # Main window
-        self.root = ctk.CTk()
-        self.root.title("Personal Planner")
-        self.root.geometry("1280x780")
-        self.root.minsize(960, 620)
-        self._center_window(1280, 780)
+        # Start FastAPI backend in a background thread
+        self._start_api()
 
-        # ── Taskbar & window icon ──────────────────────────────────────────
-        base_dir  = os.path.dirname(os.path.abspath(__file__))
-        ico_path  = ensure_icon_file(base_dir)
-        self._ico_path = ico_path
+        # Create PyWebView window (doesn't open until webview.start())
+        self.window = webview.create_window(
+            "Personal Planner",
+            f"http://127.0.0.1:{self.PORT}",
+            width=1280,
+            height=780,
+            min_size=(960, 620),
+        )
+        self.window.events.closing += self._on_closing
 
-        # Build UI
-        self.main_window = MainWindow(self.root, self.db)
-
-        # Show profile setup on first launch (no name saved yet)
-        profile = self.db.get_profile()
-        if not profile or not profile.get("name"):
-            self.root.after(300, lambda: ProfileSetupDialog(self.root, self.db))
-
-        # Minimize to tray on close
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
-
-        # System tray
-        self.tray_icon = self._create_tray_icon()
-        tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
-        tray_thread.start()
-
-        # Due-date notifications (check now + every hour)
-        self.root.after(5000, self._check_due_notifications)
-
-        # Set icon after mainloop starts so the window handle is ready
-        self.root.after(200, self._apply_icon)
-
-        self.root.mainloop()
-
-    # ── Window helpers ─────────────────────────────────────────────────────
-
-    def _apply_icon(self):
-        """Set window icon after the event loop is running (required on Windows)."""
-        try:
-            self.root.iconbitmap(self._ico_path)
-        except Exception:
-            try:
-                from PIL import ImageTk
-                _img = create_app_image(64)
-                _photo = ImageTk.PhotoImage(_img)
-                self.root.iconphoto(True, _photo)
-                self._icon_photo = _photo   # keep reference to avoid GC
-            except Exception:
-                pass
-
-    def _center_window(self, w: int, h: int):
-        self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
-
-    # ── Tray helpers ───────────────────────────────────────────────────────
-
-    def _create_tray_icon(self) -> pystray.Icon:
-        img = create_tray_image()
+        # System tray (runs in its own daemon thread)
+        tray_img = create_tray_image()
         menu = pystray.Menu(
             pystray.MenuItem("Open Planner", self._show_window, default=True),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit_app),
         )
-        return pystray.Icon("PersonalPlanner", img, "Personal Planner", menu)
+        self.tray = pystray.Icon("PersonalPlanner", tray_img, "Personal Planner", menu)
+        threading.Thread(target=self.tray.run, daemon=True).start()
+
+        # Due-date notifications (background, checks every hour)
+        threading.Thread(target=self._notification_loop, daemon=True).start()
+
+        # Start PyWebView — blocks main thread until all windows are destroyed
+        webview.start(debug=False)
+
+    # ── API startup ────────────────────────────────────────────────────────
+
+    def _start_api(self):
+        """Start uvicorn in a daemon thread; wait until the port is open."""
+        import uvicorn
+        from api import app as fastapi_app
+
+        def run():
+            uvicorn.run(fastapi_app, host="127.0.0.1", port=self.PORT, log_level="error")
+
+        threading.Thread(target=run, daemon=True).start()
+
+        # Poll until the server accepts connections (max 6 s)
+        for _ in range(30):
+            try:
+                with socket.create_connection(("127.0.0.1", self.PORT), timeout=0.3):
+                    return
+            except OSError:
+                time.sleep(0.2)
+        logging.warning("API server did not start within 6 seconds")
+
+    # ── Window / tray helpers ──────────────────────────────────────────────
+
+    def _on_closing(self):
+        """Hide to tray instead of quitting when the user closes the window."""
+        self.window.hide()
+        return False   # returning False cancels the default close
 
     def _show_window(self, icon=None, item=None):
-        # Must schedule UI work on the main thread
-        self.root.after(0, self._do_show)
-
-    def _do_show(self):
-        self.root.deiconify()
-        self.root.lift()
-        self.root.focus_force()
-        self.root.state("normal")
-
-    def hide_to_tray(self):
-        self.root.withdraw()
-
-    def _check_due_notifications(self):
-        """Show a tray notification if tasks are due today or overdue."""
-        try:
-            from datetime import date as _date
-            today = _date.today().isoformat()
-            tasks = self.db.get_tasks()
-            due_today = [t for t in tasks if t["due_date"] == today and t["status"] != "Done"]
-            overdue   = [t for t in tasks if t["due_date"] and t["due_date"] < today and t["status"] != "Done"]
-            parts = []
-            if due_today:
-                parts.append(f"{len(due_today)} task(s) due today")
-            if overdue:
-                parts.append(f"{len(overdue)} overdue")
-            if parts:
-                try:
-                    self.tray_icon.notify(" · ".join(parts), "Personal Planner 📌")
-                except Exception:
-                    pass
-        except Exception as exc:
-            logging.warning("Notification check failed: %s", exc)
-        # Repeat every hour
-        self.root.after(3_600_000, self._check_due_notifications)
+        self.window.show()
 
     def _quit_app(self, icon=None, item=None):
-        self.tray_icon.stop()
-        self.root.after(0, self.root.quit)
+        self.tray.stop()
+        self.window.destroy()   # unblocks webview.start()
+
+    # ── Due-date notifications ─────────────────────────────────────────────
+
+    def _notification_loop(self):
+        time.sleep(5)   # brief startup delay
+        while True:
+            try:
+                from datetime import date as _date
+                today = _date.today().isoformat()
+                tasks = self.db.get_tasks()
+                due_today = [t for t in tasks if t.get("due_date") == today and t.get("status") != "Done"]
+                overdue   = [t for t in tasks if t.get("due_date") and t["due_date"] < today and t.get("status") != "Done"]
+                parts = []
+                if due_today:
+                    parts.append(f"{len(due_today)} task(s) due today")
+                if overdue:
+                    parts.append(f"{len(overdue)} overdue")
+                if parts:
+                    try:
+                        self.tray.notify(" · ".join(parts), "Personal Planner 📌")
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logging.warning("Notification check failed: %s", exc)
+            time.sleep(3_600)   # 1 hour
 
 
 if __name__ == "__main__":

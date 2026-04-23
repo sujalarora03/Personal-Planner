@@ -217,7 +217,10 @@ class MainWindow:
 
     def _toggle_appearance(self):
         self._appearance = "light" if self._appearance == "dark" else "dark"
-        ctk.set_appearance_mode(self._appearance)
+        # Note: ctk.set_appearance_mode() is intentionally NOT called here.
+        # All tab content uses hardcoded dark hex colors — calling set_appearance_mode
+        # causes CTk's internal widgets (ComboBox, Entry, etc.) to flip to light defaults
+        # while custom backgrounds stay dark, producing white/black glitches.
 
         is_dark   = self._appearance == "dark"
         sidebar_bg = SIDEBAR_BG_DARK if is_dark else SIDEBAR_BG_LIGHT

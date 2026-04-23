@@ -16,15 +16,18 @@ from datetime import datetime
 
 def confirm_delete(parent, item_name: str, on_confirm):
     """Show a small modal dialog before any destructive deletion."""
-    dlg = ctk.CTkToplevel(parent)
+    root = parent.winfo_toplevel()
+    dlg = ctk.CTkToplevel(root)
     dlg.title("Confirm Delete")
     dlg.geometry("360x175")
     dlg.resizable(False, False)
     dlg.configure(fg_color="#1a2332")
-    dlg.grab_set()
+    dlg.transient(root)
+    dlg.attributes('-topmost', True)
     dlg.lift()
     dlg.focus_force()
-    _center(dlg, 360, 175, parent)
+    _center(dlg, 360, 175, root)
+    dlg.after(100, dlg.grab_set)
 
     ctk.CTkLabel(
         dlg, text="🗑  Confirm Delete",
