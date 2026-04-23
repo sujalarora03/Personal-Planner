@@ -119,18 +119,7 @@ class PersonalPlannerApp:
         # ── Taskbar & window icon ──────────────────────────────────────────
         base_dir  = os.path.dirname(os.path.abspath(__file__))
         ico_path  = ensure_icon_file(base_dir)
-        try:
-            self.root.iconbitmap(ico_path)
-        except Exception:
-            # Fallback: use iconphoto with a PIL-backed PhotoImage
-            try:
-                from PIL import ImageTk
-                _img = create_app_image(64)
-                _photo = ImageTk.PhotoImage(_img)
-                self.root.iconphoto(True, _photo)
-                self._icon_photo = _photo   # keep reference to avoid GC
-            except Exception:
-                pass
+        self._ico_path = ico_path
 
         # Build UI
         self.main_window = MainWindow(self.root, self.db)
@@ -151,9 +140,26 @@ class PersonalPlannerApp:
         # Due-date notifications (check now + every hour)
         self.root.after(5000, self._check_due_notifications)
 
+        # Set icon after mainloop starts so the window handle is ready
+        self.root.after(200, self._apply_icon)
+
         self.root.mainloop()
 
     # ── Window helpers ─────────────────────────────────────────────────────
+
+    def _apply_icon(self):
+        """Set window icon after the event loop is running (required on Windows)."""
+        try:
+            self.root.iconbitmap(self._ico_path)
+        except Exception:
+            try:
+                from PIL import ImageTk
+                _img = create_app_image(64)
+                _photo = ImageTk.PhotoImage(_img)
+                self.root.iconphoto(True, _photo)
+                self._icon_photo = _photo   # keep reference to avoid GC
+            except Exception:
+                pass
 
     def _center_window(self, w: int, h: int):
         self.root.update_idletasks()

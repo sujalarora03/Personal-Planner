@@ -1,5 +1,4 @@
 import customtkinter as ctk
-import tkinter as tk
 from ui.landing_tab import LandingTab
 from ui.dashboard_tab import DashboardTab
 from ui.tasks_tab import TasksTab
@@ -59,35 +58,18 @@ class MainWindow:
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
-        # ── Sidebar (canvas-backed for gradient effect) ──
-        self._sidebar_canvas = tk.Canvas(
-            self.root, width=230, highlightthickness=0, bg=SIDEBAR_BG_DARK
-        )
-        self._sidebar_canvas.grid(row=0, column=0, sticky="nsew")
-        self._sidebar_canvas.bind("<Configure>", self._draw_sidebar_gradient)
-
+        # ── Sidebar ──
         self.sidebar = ctk.CTkFrame(
-            self._sidebar_canvas, width=230, corner_radius=0,
-            fg_color="transparent"
+            self.root, width=230, corner_radius=0, fg_color=SIDEBAR_BG_DARK
         )
-        self._sidebar_win = self._sidebar_canvas.create_window(
-            0, 0, anchor="nw", window=self.sidebar
-        )
-        self.sidebar.bind(
-            "<Configure>",
-            lambda e: self._sidebar_canvas.configure(
-                scrollregion=self._sidebar_canvas.bbox("all")
-            ),
-        )
-
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_columnconfigure(0, weight=1)
         self.sidebar.grid_rowconfigure(14, weight=1)
 
         # Purple accent strip on left edge
-        self._accent_strip = tk.Frame(self._sidebar_canvas, width=3, bg="#7c3aed")
-        self._sidebar_canvas.create_window(0, 0, anchor="nw", window=self._accent_strip,
-                                           height=4000)
+        self._accent_strip = ctk.CTkFrame(self.sidebar, width=3, corner_radius=0, fg_color="#7c3aed")
+        self._accent_strip.place(x=0, y=0, relheight=1.0)
 
         # Logo area
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -187,31 +169,6 @@ class MainWindow:
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
 
-    def _draw_sidebar_gradient(self, _event=None):
-        w = self._sidebar_canvas.winfo_width()
-        h = self._sidebar_canvas.winfo_height()
-        if w < 2 or h < 2:
-            return
-        self._sidebar_canvas.delete("grad")
-        bg = SIDEBAR_BG_DARK if self._appearance == "dark" else SIDEBAR_BG_LIGHT
-
-        # Solid base
-        self._sidebar_canvas.create_rectangle(
-            0, 0, w, h, fill=bg, outline="", tags="grad"
-        )
-        # Subtle gradient from left (slightly lighter purple tinge)
-        if self._appearance == "dark":
-            for i in range(20):
-                alpha = 1 - (i / 20)
-                r = int(0x1a * alpha)
-                g = int(0x00 * alpha)
-                b = int(0x40 * alpha)
-                col = f"#{r:02x}{g:02x}{b:02x}"
-                self._sidebar_canvas.create_rectangle(
-                    0, 0, 20 - i, h, fill=col, outline="", tags="grad"
-                )
-        # Raise nav frame and accent strip
-        self._sidebar_canvas.tag_raise(self._sidebar_win)
 
     def _build_tabs(self):
         self.tabs["landing"]      = LandingTab(self.content, self.db)
@@ -268,9 +225,8 @@ class MainWindow:
         inactive_t = INACTIVE_TEXT_D if is_dark else INACTIVE_TEXT_L
         hover      = HOVER_DARK if is_dark else HOVER_LIGHT
 
-        # Update canvas and content backgrounds
-        self._sidebar_canvas.configure(bg=sidebar_bg)
-        self._draw_sidebar_gradient()
+        # Update sidebar and content backgrounds
+        self.sidebar.configure(fg_color=sidebar_bg)
         self.content.configure(fg_color=content_bg)
 
         # Update all tab frame backgrounds
