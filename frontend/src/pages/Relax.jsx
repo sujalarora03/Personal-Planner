@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Sparkles, Music, RefreshCw, PlayCircle, X } from 'lucide-react'
+import { Play, Pause, Sparkles, Music, RefreshCw, PlayCircle, X, Volume2, VolumeX } from 'lucide-react'
 
 const MOODS = [
   { emoji: '🎯', label: 'Focused',     value: 'deeply focused and in a flow state, need concentration music' },
@@ -52,6 +52,7 @@ export default function Relax() {
   const [isPlaying, setIsPlaying]     = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration]       = useState(30)
+  const [volume, setVolume]           = useState(1)
 
   const audioRef     = useRef(null)
   const songsRef     = useRef([])
@@ -65,6 +66,7 @@ export default function Relax() {
   useEffect(() => {
     const audio = new Audio()
     audioRef.current = audio
+    audio.volume = 1
     audio.addEventListener('timeupdate',     () => setCurrentTime(audio.currentTime))
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration || 30))
     audio.addEventListener('play',           () => setIsPlaying(true))
@@ -532,11 +534,50 @@ export default function Relax() {
                     </div>
                     <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', minWidth: 28 }}>{fmtTime(duration)}</span>
                   </div>
+                  {/* Volume control */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => {
+                      const v = volume === 0 ? 1 : 0
+                      setVolume(v)
+                      if (audioRef.current) audioRef.current.volume = v
+                    }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                      {volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                    <input type="range" min={0} max={1} step={0.02} value={volume}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value)
+                        setVolume(v)
+                        if (audioRef.current) audioRef.current.volume = v
+                      }}
+                      style={{ width: 72, accentColor: '#7c3aed', cursor: 'pointer' }}
+                    />
+                  </div>
                   <button onClick={() => setPlayingIdx(null)} style={{
                     background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
                     cursor: 'pointer', display: 'flex', padding: 4 }}>
                     <X size={15} />
                   </button>
+                  {/* Volume control */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => {
+                      const v = volume === 0 ? 1 : 0
+                      setVolume(v)
+                      if (audioRef.current) audioRef.current.volume = v
+                    }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                      {volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                    <input type="range" min={0} max={1} step={0.02} value={volume}
+                      onChange={e => {
+                        const v = parseFloat(e.target.value)
+                        setVolume(v)
+                        if (audioRef.current) audioRef.current.volume = v
+                      }}
+                      style={{
+                        width: 72, accentColor: '#7c3aed', cursor: 'pointer',
+                        height: 3, borderRadius: 2,
+                      }}
+                    />
+                  </div>
                 </div>
               </>
             )}
