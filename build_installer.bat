@@ -55,25 +55,33 @@ if errorlevel 1 (
 )
 call :log "      Done."
 
-:: ── Step 2: Build React frontend ──────────────────────────────────────
+:: ── Step 2: Build React frontend ─────────────────────────────────
 call :log ""
 call :log "[2/6] Building React frontend..."
 cd frontend
-npm config set script-shell "%SystemRoot%\System32\cmd.exe" >> "%LOG%" 2>&1
-call :log "      Running npm install..."
-call npm install --silent >> "%LOG%" 2>&1
+
+:: Force npm to use cmd.exe - avoids PowerShell execution policy blocks
+npm config set script-shell "%SystemRoot%\System32\cmd.exe" 2>nul
+
+call :log "      Running npm install (output shown live below)..."
+echo ---------------------------------------------------------------
+call npm install
+echo ---------------------------------------------------------------
 if errorlevel 1 (
-    call :log "[ERROR] npm install failed. See build_log.txt."
+    call :log "[ERROR] npm install failed."
     cd .. & pause & exit /b 1
 )
-call :log "      Running npm run build..."
-call npm run build >> "%LOG%" 2>&1
+
+call :log "      Running npm run build (output shown live below)..."
+echo ---------------------------------------------------------------
+call npm run build
+echo ---------------------------------------------------------------
 if errorlevel 1 (
-    call :log "[ERROR] npm build failed. See build_log.txt."
+    call :log "[ERROR] npm build failed."
     cd .. & pause & exit /b 1
 )
 cd ..
-call :log "      Frontend built."
+call :log "      Frontend built successfully."
 
 :: ── Step 3: Download Ollama installer ─────────────────────────────────
 call :log ""
@@ -95,15 +103,16 @@ if exist OllamaSetup.exe (
 :: ── Step 4: PyInstaller ───────────────────────────────────────────────
 call :log ""
 call :log "[4/6] Bundling app with PyInstaller (2-5 minutes)..."
-call :log "      Please wait, console may appear quiet during this step..."
-python -m PyInstaller PersonalPlanner.spec --noconfirm --clean >> "%LOG%" 2>&1
+call :log "      Output shown live below:"
+echo ---------------------------------------------------------------
+python -m PyInstaller PersonalPlanner.spec --noconfirm --clean
+echo ---------------------------------------------------------------
 if errorlevel 1 (
-    call :log "[ERROR] PyInstaller failed. Open build_log.txt and search 'Error'."
+    call :log "[ERROR] PyInstaller failed - check output above."
     pause & exit /b 1
 )
 if not exist "dist\PersonalPlanner\PersonalPlanner.exe" (
     call :log "[ERROR] PyInstaller ran but PersonalPlanner.exe was not produced."
-    call :log "        Check build_log.txt for details."
     pause & exit /b 1
 )
 call :log "      Bundle ready: dist\PersonalPlanner\"
