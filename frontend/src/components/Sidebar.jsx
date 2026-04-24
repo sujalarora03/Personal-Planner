@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Home, LayoutDashboard, CheckSquare, Clock, Rocket,
-  Target, BookOpen, GraduationCap, Bot, User, Download
+  Target, BookOpen, GraduationCap, Bot, User, Download, Headphones
 } from 'lucide-react'
 import { api } from '../api/client'
 
@@ -17,6 +17,7 @@ const NAV = [
   { to: '/courses',    icon: BookOpen,      label: 'Courses' },
   { to: '/career',     icon: GraduationCap, label: 'Career' },
   { to: '/ai',         icon: Bot,           label: 'AI Assistant' },
+  { to: '/relax',      icon: Headphones,    label: 'Relax' },
 ]
 
 export default function Sidebar() {

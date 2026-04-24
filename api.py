@@ -409,6 +409,72 @@ def ollama_status():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# MOOD / SONG SUGGESTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class MoodRequest(BaseModel):
+    mood: str
+    context: str = ""
+    model: str = "llama3.2"
+
+@app.post("/api/mood/suggest")
+def mood_suggest(body: MoodRequest):
+    """Stream song suggestions based on the user's mood."""
+    profile = db.get_profile() or {}
+    name    = (profile.get("name") or "").split(" ")[0]
+
+    name_part    = f"The user's name is {name}. " if name else ""
+    context_part = f"Additional context: {body.context}. " if body.context.strip() else ""
+
+    system = (
+        "You are a music expert and personal DJ. "
+        "Given the user's mood, suggest 8 songs that perfectly match it. "
+        "For each song include: artist, song title, and a one-line reason why it fits the mood. "
+        "Format each entry as: [Artist] - [Song Title] | [reason]. "
+        "Be specific and diverse across genres. Keep reasons under 15 words each."
+    )
+    prompt = (
+        f"{name_part}{context_part}"
+        f"My current mood is: {body.mood}. "
+        "Suggest 8 songs that match this mood perfectly. "
+        "Include a mix of genres and eras."
+    )
+
+    def stream():
+        try:
+            import requests as _r, json as _j
+            resp = _r.post(
+                "http://localhost:11434/api/chat",
+                json={
+                    "model": body.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": prompt},
+                    ],
+                    "stream": True,
+                },
+                stream=True, timeout=60,
+            )
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    data  = _j.loads(line)
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
+                except Exception:
+                    pass
+        except Exception as e:
+            yield f"⚠ {e}"
+
+    return StreamingResponse(stream(), media_type="text/plain")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AI CHAT
 # ═══════════════════════════════════════════════════════════════════════════════
 
