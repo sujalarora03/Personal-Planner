@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Send, Trash2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Send, Trash2, X } from 'lucide-react'
 import { api } from '../api/client'
 import toast from 'react-hot-toast'
 
@@ -15,14 +15,101 @@ const QUICK = [
   { label:'Fix Overdue',       prompt:'Use query_data to find my overdue tasks, then suggest a concrete plan for each one.' },
 ]
 
-// Render a message — split tool result lines from regular text
+// Ollama setup banner shown when Ollama is not detected
+function OllamaBanner({ onDismiss }) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        style={{
+          margin: '0 0 16px',
+          padding: '16px 18px',
+          borderRadius: 12,
+          background: 'rgba(251,191,36,0.06)',
+          border: '1px solid rgba(251,191,36,0.25)',
+          position: 'relative',
+        }}
+      >
+        <button onClick={onDismiss} style={{
+          position: 'absolute', top: 10, right: 10,
+          background: 'none', border: 'none', cursor: 'pointer',
+          color: 'rgba(255,255,255,0.35)', padding: 2,
+        }}><X size={14} /></button>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 20 }}>🤖</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#fbbf24', marginBottom: 4 }}>
+              Ollama not detected
+              <span style={{
+                marginLeft: 8, fontSize: 10, fontWeight: 600,
+                background: 'rgba(251,191,36,0.15)', color: '#fbbf24',
+                border: '1px solid rgba(251,191,36,0.3)',
+                borderRadius: 4, padding: '1px 6px', verticalAlign: 'middle',
+              }}>OPTIONAL</span>
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, marginBottom: 10 }}>
+              AI chat requires <strong style={{ color: 'white' }}>Ollama</strong> — a free local AI runtime.
+              Install it to run AI models privately on your machine.
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Install link */}
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.35)', marginRight: 6 }}>1.</span>
+                Download &amp; install from{' '}
+                <span
+                  onClick={() => { try { window.pywebview?.api?.open_url?.('https://ollama.com') } catch(_) {}; navigator.clipboard?.writeText?.('https://ollama.com') }}
+                  style={{ color: '#a78bfa', textDecoration: 'underline', cursor: 'pointer' }}
+                  title="Click to copy URL"
+                >
+                  ollama.com
+                </span>
+              </div>
+              {/* Start service */}
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.35)', marginRight: 6 }}>2.</span>
+                Start Ollama:{' '}
+                <code style={{
+                  background: 'rgba(255,255,255,0.08)', borderRadius: 4,
+                  padding: '1px 6px', fontSize: 11, color: '#c4b5fd', cursor: 'pointer',
+                }} onClick={() => navigator.clipboard?.writeText?.('ollama serve')} title="Click to copy">
+                  ollama serve
+                </code>
+              </div>
+              {/* Pull a model */}
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.35)', marginRight: 6 }}>3.</span>
+                Pull a model (choose one):{' '}
+                {['ollama pull llama3.2', 'ollama pull mistral', 'ollama pull phi3'].map(cmd => (
+                  <code key={cmd}
+                    onClick={() => navigator.clipboard?.writeText?.(cmd)}
+                    title="Click to copy"
+                    style={{
+                      background: 'rgba(255,255,255,0.08)', borderRadius: 4,
+                      padding: '1px 6px', fontSize: 11, color: '#c4b5fd',
+                      cursor: 'pointer', marginRight: 6, display: 'inline-block', marginTop: 2,
+                    }}>{cmd}</code>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+
 function MessageBubble({ msg }) {
   const isUser = msg.role === 'user'
   const lines  = msg.text.split('\n')
 
   const rendered = lines.map((line, i) => {
-    if (line.startsWith('`[tool:') && line.endsWith(']`')) {
-      const inner = line.slice(2, -2)
+    if (line.trim().startsWith('[Tool]')) {
+      const inner = line.trim()
       return (
         <div key={i} style={{
           display:'inline-flex', alignItems:'center', gap:6, margin:'4px 0',
@@ -59,6 +146,8 @@ export default function AI() {
   const [loading, setLoading]   = useState(false)
   const [model, setModel]       = useState('llama3.2')
   const [ctx, setCtx]           = useState(true)
+  const [ollamaOk, setOllamaOk] = useState(null)   // null = checking, true/false = result
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const bottomRef = useRef(null)
   const msgRef    = useRef([])
 
@@ -70,6 +159,10 @@ export default function AI() {
         msgRef.current = loaded
       }
     }).catch(() => {})
+
+    api.ollamaStatus()
+      .then(s => setOllamaOk(s?.running === true))
+      .catch(() => setOllamaOk(false))
   }, [])
 
   useEffect(() => {
@@ -152,6 +245,9 @@ export default function AI() {
 
           {/* Messages */}
           <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:16, paddingBottom:16 }}>
+            {ollamaOk === false && !bannerDismissed && (
+              <OllamaBanner onDismiss={() => setBannerDismissed(true)} />
+            )}
             {messages.length === 0 && (
               <div style={{ textAlign:'center', color:'rgba(255,255,255,0.3)', padding:'60px 0' }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>🤖</div>

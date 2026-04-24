@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { CheckSquare, Bot, GraduationCap, Zap } from 'lucide-react'
+import { CheckSquare, Bot, GraduationCap, RefreshCw } from 'lucide-react'
 import { api } from '../api/client'
 
 const greeting = () => {
@@ -35,11 +35,21 @@ export default function Home() {
   const navigate = useNavigate()
   const [profile, setProfile] = useState(null)
   const [stats, setStats]     = useState({})
-  const [quote]               = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)])
+  const [quote, setQuote]         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)])
+  const [quoteLoading, setQuoteLoading] = useState(false)
+
+  const refreshQuote = () => {
+    setQuoteLoading(true)
+    api.getDailyQuote()
+      .then((q) => { if (q?.quote) setQuote(q.quote) })
+      .catch(() => {})
+      .finally(() => setQuoteLoading(false))
+  }
 
   useEffect(() => {
     api.getProfile().then(setProfile).catch(() => {})
     api.getDashboard().then(setStats).catch(() => {})
+    refreshQuote()
   }, [])
 
   const name = profile?.name?.split(' ')[0] || null
@@ -79,8 +89,13 @@ export default function Home() {
           borderColor: 'rgba(124,58,237,0.2)',
           background: 'rgba(124,58,237,0.06)',
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
-            💫 Today's Vibe
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 1 }}>💫 Today's Vibe</div>
+            <button onClick={refreshQuote} disabled={quoteLoading}
+              style={{ background: 'none', border: 'none', cursor: quoteLoading ? 'default' : 'pointer', color: '#7c3aed', padding: 4, display: 'flex', alignItems: 'center', opacity: quoteLoading ? 0.4 : 1 }}
+              title="Refresh quote">
+              <RefreshCw size={13} style={{ animation: quoteLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+            </button>
           </div>
           <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.4, color: 'white', fontStyle: 'italic' }}>
             "{quote}"

@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import json
+import random
 from datetime import date
 from typing import Optional
 
@@ -322,6 +323,92 @@ def dashboard():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DAILY QUOTE (OLLAMA + FALLBACK)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_FALLBACK_QUOTES = [
+    "You didn't come this far to only come this far.",
+    "Make it happen. Shock everyone.",
+    "Build the life you can't stop thinking about.",
+    "Stop waiting for the right moment. Create it.",
+    "Be the main character, not a side quest.",
+    "One year from now you'll wish you started today.",
+]
+
+@app.get("/api/quote")
+def get_daily_quote():
+    fallback = random.choice(_FALLBACK_QUOTES)
+    try:
+        import requests as _requests
+
+        tags = _requests.get("http://localhost:11434/api/tags", timeout=2)
+        if tags.status_code != 200:
+            return {"quote": fallback, "source": "fallback"}
+
+        models = [m.get("name") for m in tags.json().get("models", []) if m.get("name")]
+        if not models:
+            return {"quote": fallback, "source": "fallback"}
+
+        model = "llama3.2" if "llama3.2" in models else models[0]
+
+        p = db.get_profile() or {}
+        first_name = (p.get("name") or "").split(" ")[0]
+        role = p.get("role") or ""
+        context_bits = []
+        if first_name:
+            context_bits.append(f"The user's first name is {first_name}.")
+        if role:
+            context_bits.append(f"They work as {role}.")
+        context = " ".join(context_bits)
+
+        resp = _requests.post(
+            "http://localhost:11434/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You generate ultra-short motivational one-liners. "
+                            "Max 18 words. Output ONLY the quote text."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Give me one motivational line for today. {context}",
+                    },
+                ],
+                "stream": False,
+            },
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return {"quote": fallback, "source": "fallback"}
+
+        quote = (resp.json().get("message", {}).get("content", "") or "").strip().strip('"').strip("'")
+        if 5 < len(quote) < 220:
+            return {"quote": quote, "source": "ollama", "model": model}
+    except Exception:
+        pass
+
+    return {"quote": fallback, "source": "fallback"}
+
+
+@app.get("/api/ollama/status")
+def ollama_status():
+    """Quick check: is Ollama running and which models are installed?"""
+    try:
+        import requests as _requests
+        tags = _requests.get("http://localhost:11434/api/tags", timeout=2)
+        if tags.status_code != 200:
+            return {"running": False, "models": []}
+        models = [m.get("name") for m in tags.json().get("models", []) if m.get("name")]
+        return {"running": True, "models": models}
+    except Exception:
+        return {"running": False, "models": []}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AI CHAT
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -478,8 +565,6 @@ def _run_tool_server(tool: str, args: dict) -> str:
 @app.post("/api/chat/stream")
 def chat_stream(body: ChatStreamRequest):
     """Stream AI response with server-side tool execution."""
-    today = date.today()
-
     # Build context
     if body.include_context:
         ctx_resp = get_context()
@@ -495,6 +580,13 @@ def chat_stream(body: ChatStreamRequest):
         import json as _j
         conversation = list(messages)
         MAX_TOOL_ROUNDS = 8
+        rendered_parts = []
+
+        def _strip_tool_tags(text: str) -> str:
+            # Hide raw tool markup from users while preserving natural language text.
+            text = _re2.sub(r"<tool_call>.*?</tool_call>", "", text, flags=_re2.DOTALL)
+            text = _re2.sub(r"<tool_[^>]+>.*?</tool_[^>]+>", "", text, flags=_re2.DOTALL)
+            return text
 
         for _round in range(MAX_TOOL_ROUNDS):
             # Call Ollama
@@ -506,20 +598,26 @@ def chat_stream(body: ChatStreamRequest):
                 )
                 resp.raise_for_status()
             except _req.exceptions.ConnectionError:
-                yield "\n⚠ Could not connect to Ollama. Run: `ollama serve`"
+                msg = "\n⚠ Could not connect to Ollama. Run: ollama serve"
+                rendered_parts.append(msg)
+                yield msg
                 return
             except _req.exceptions.HTTPError as e:
                 status = getattr(getattr(e, "response", None), "status_code", None)
                 if status == 404:
-                    yield f"\n⚠ Model '{body.model}' not found. Run: `ollama pull {body.model}`"
+                    msg = f"\n⚠ Model '{body.model}' not found. Run: ollama pull {body.model}"
                 else:
-                    yield f"\n⚠ Ollama error {status}"
+                    msg = f"\n⚠ Ollama error {status}"
+                rendered_parts.append(msg)
+                yield msg
                 return
             except Exception as e:
-                yield f"\n⚠ Error: {e}"
+                msg = f"\n⚠ Error: {e}"
+                rendered_parts.append(msg)
+                yield msg
                 return
 
-            # Collect the full response, streaming text through
+            # Collect complete model response, then render a cleaned version.
             full_text = []
             for line in resp.iter_lines():
                 if not line:
@@ -529,7 +627,6 @@ def chat_stream(body: ChatStreamRequest):
                     chunk = data.get("message", {}).get("content", "")
                     if chunk:
                         full_text.append(chunk)
-                        yield chunk
                     if data.get("done"):
                         break
                 except Exception:
@@ -538,36 +635,60 @@ def chat_stream(body: ChatStreamRequest):
             assistant_text = "".join(full_text)
             conversation.append({"role": "assistant", "content": assistant_text})
 
+            visible_text = _strip_tool_tags(assistant_text).strip()
+            if visible_text:
+                if rendered_parts and not rendered_parts[-1].endswith("\n"):
+                    visible_text = "\n" + visible_text
+                rendered_parts.append(visible_text)
+                yield visible_text
+
             # Check for tool calls in the response
             tool_calls = _re2.findall(r"<tool_call>(.*?)</tool_call>", assistant_text, _re2.DOTALL)
             if not tool_calls:
                 # No tools — we're done
                 # Persist to DB
-                user_msg = next((m["content"] for m in reversed(body.messages) if m.role == "user"), None)
+                user_msg = next((m.content for m in reversed(body.messages) if m.role == "user"), None)
                 if user_msg:
                     db.save_chat_message("user", user_msg)
-                db.save_chat_message("assistant", assistant_text)
+                db.save_chat_message("assistant", "".join(rendered_parts).strip() or assistant_text)
                 return
 
             # Execute each tool and feed results back
             for tc in tool_calls:
                 try:
-                    call   = _j.loads(tc.strip())
+                    parsed = tc.strip()
+                    if parsed.startswith("```"):
+                        parsed = parsed.strip("`")
+                        if parsed.lower().startswith("json"):
+                            parsed = parsed[4:].strip()
+                    call   = _j.loads(parsed)
                     tool   = call.get("tool", "")
                     args   = call.get("args", {})
                     result = _run_tool_server(tool, args)
                 except Exception as exc:
+                    tool = "unknown"
                     result = f"Tool parse error: {exc}"
 
                 tool_result_msg = f"<tool_result>{result}</tool_result>"
-                yield f"\n\n`[tool: {tool} → {result[:80]}]`\n\n"
+                human_tool = f"\n[Tool] {tool}: {result}\n"
+                rendered_parts.append(human_tool)
+                yield human_tool
                 conversation.append({"role": "user", "content": tool_result_msg})
 
             # Loop to let the AI respond to tool results
 
-        yield "\n\n[Max tool rounds reached]"
+        tail = "\n\n[Max tool rounds reached]"
+        rendered_parts.append(tail)
+        yield tail
+
+        user_msg = next((m.content for m in reversed(body.messages) if m.role == "user"), None)
+        if user_msg:
+            db.save_chat_message("user", user_msg)
+        db.save_chat_message("assistant", "".join(rendered_parts).strip())
 
     return StreamingResponse(stream(), media_type="text/plain")
+
+@app.get("/api/chat/context")
 def get_context():
     """Return the planner snapshot used to ground the AI."""
     today = date.today()

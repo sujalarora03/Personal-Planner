@@ -54,6 +54,10 @@ export const api = {
   // Dashboard
   getDashboard: () => req('GET', '/dashboard'),
 
+  // Home quote
+  getDailyQuote:  () => req('GET', '/quote'),
+  ollamaStatus:   () => req('GET', '/ollama/status'),
+
   // AI / Chat
   getChatHistory: () => req('GET', '/chat/history'),
   clearChat:      () => req('DELETE', '/chat/history'),
