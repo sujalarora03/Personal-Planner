@@ -2,6 +2,9 @@
 setlocal enabledelayedexpansion
 title Personal Planner — Build Windows Installer
 
+:: Always run from the directory this .bat lives in (so all relative paths work)
+cd /d "%~dp0"
+
 echo.
 echo  ============================================================
 echo   Personal Planner — Windows Installer Builder
@@ -27,7 +30,7 @@ if errorlevel 1 (
 )
 
 :: ── Step 1: Python dependencies ───────────────────────────────
-echo [3/6] Installing Python dependencies (including PyInstaller)...
+echo [1/6] Installing Python dependencies (including PyInstaller)...
 pip install -r requirements.txt pyinstaller --quiet --upgrade
 if errorlevel 1 (
     echo [ERROR] pip install failed. Check your internet connection.
@@ -45,8 +48,8 @@ if errorlevel 1 ( echo [ERROR] npm build failed & cd .. & pause & exit /b 1 )
 cd ..
 echo       Done.
 
-:: ── Step 2b: Download Ollama installer ────────────────────────
-echo [2b/6] Downloading Ollama installer (bundled for offline AI setup)...
+:: ── Step 3: Download Ollama installer ────────────────────────
+echo [3/6] Downloading Ollama installer (bundled for offline AI setup)...
 powershell -Command "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'OllamaSetup.exe' -UseBasicParsing"
 if not exist OllamaSetup.exe (
     echo [WARN] Could not download OllamaSetup.exe.
@@ -57,7 +60,7 @@ if not exist OllamaSetup.exe (
 )
 echo       Done.
 
-:: ── Step 3: PyInstaller ───────────────────────────────────────
+:: ── Step 4: PyInstaller ───────────────────────────────────────
 echo [4/6] Bundling app with PyInstaller (this may take 2-5 minutes)...
 pyinstaller PersonalPlanner.spec --noconfirm --clean
 if errorlevel 1 (
@@ -66,7 +69,7 @@ if errorlevel 1 (
 )
 echo       Done. Bundle is in dist\PersonalPlanner\
 
-:: ── Step 4: Find Inno Setup ───────────────────────────────────
+:: ── Step 5: Find Inno Setup ───────────────────────────────────
 echo [5/6] Looking for Inno Setup 6...
 set ISCC=""
 
@@ -85,9 +88,18 @@ if %ISCC%=="" (
     pause & exit /b 0
 )
 
-:: ── Step 5: Build installer ───────────────────────────────────
+:: ── Step 6: Build installer ───────────────────────────────────
 echo [6/6] Compiling Inno Setup installer...
 mkdir Output 2>nul
+
+:: Sanity-check: make sure PyInstaller produced its output
+if not exist "dist\PersonalPlanner\PersonalPlanner.exe" (
+    echo [ERROR] dist\PersonalPlanner\PersonalPlanner.exe not found.
+    echo         PyInstaller did not produce the expected output.
+    echo         Check the PyInstaller log above for details.
+    pause ^& exit /b 1
+)
+
 "%ISCC%" installer.iss
 if errorlevel 1 (
     echo [ERROR] Inno Setup compilation failed. See output above.
