@@ -67,4 +67,7 @@ export const api = {
   // Resumes
   getResumes:   () => req('GET', '/resumes'),
   deleteResume: (id) => req('DELETE', `/resumes/${id}`),
+
+  // App updates
+  checkUpdate: () => req('GET', '/update/check'),
 }

@@ -33,7 +33,13 @@ app.add_middleware(
 )
 
 # ── Serve built React frontend ─────────────────────────────────────────────────
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+def _get_base_dir() -> str:
+    """sys._MEIPASS when running as PyInstaller bundle, else script directory."""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS  # type: ignore[attr-defined]
+    return os.path.dirname(os.path.abspath(__file__))
+
+FRONTEND_DIST = os.path.join(_get_base_dir(), "frontend", "dist")
 
 # Static assets mount (must be before catch-all, but assets/ prefix is specific enough)
 if os.path.exists(FRONTEND_DIST):
@@ -292,6 +298,16 @@ def get_skills():
     for r in rows:
         cats.setdefault(r["category"], []).append(r["skill"])
     return cats
+
+
+@app.get("/api/update/check")
+def check_update():
+    """Check GitHub main branch for a newer version of the app."""
+    try:
+        from updater import check_for_update
+        return check_for_update()
+    except Exception as e:
+        return {"available": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

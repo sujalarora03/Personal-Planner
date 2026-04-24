@@ -1,10 +1,24 @@
 import sqlite3
 import os
+import sys
 import shutil
 import glob
 from datetime import datetime, date
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'planner.db')
+
+def _get_db_path() -> str:
+    """AppData\\PersonalPlanner when installed; local directory in dev mode."""
+    if getattr(sys, 'frozen', False):
+        app_data = os.path.join(
+            os.environ.get('APPDATA', os.path.expanduser('~')),
+            'PersonalPlanner'
+        )
+        os.makedirs(app_data, exist_ok=True)
+        return os.path.join(app_data, 'planner.db')
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'planner.db')
+
+
+DB_PATH = _get_db_path()
 
 
 class Database:

@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
+import { Download, X } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import AuroraBackground from './components/AuroraBackground'
 import { api } from './api/client'
@@ -202,6 +203,8 @@ function FirstRunModal({ onClose }) {
 
 function AppShell() {
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [updateInfo, setUpdateInfo]         = useState(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -214,12 +217,56 @@ function AppShell() {
       const needsResume  = !Array.isArray(resumes) || resumes.length === 0
       if (needsProfile || needsResume) setShowOnboarding(true)
     })
-    return () => { cancelled = true }
+
+    // Check for updates after a short delay (non-blocking)
+    const timer = setTimeout(() => {
+      api.checkUpdate().then(data => {
+        if (!cancelled && data?.available) setUpdateInfo(data)
+      }).catch(() => {})
+    }, 4000)
+
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [])
 
   return (
     <>
       <AuroraBackground />
+      {/* Update notification banner */}
+      <AnimatePresence>
+        {updateInfo && !updateDismissed && (
+          <motion.div
+            initial={{ y: -60 }} animate={{ y: 0 }} exit={{ y: -60 }}
+            style={{
+              position: 'fixed', top: 0, left: 220, right: 0, zIndex: 100,
+              background: 'linear-gradient(90deg, rgba(124,58,237,0.92), rgba(6,182,212,0.88))',
+              backdropFilter: 'blur(12px)',
+              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px',
+              boxShadow: '0 2px 20px rgba(124,58,237,0.4)',
+            }}>
+            <Download size={15} color="white" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'white', flex: 1 }}>
+              ✨ Personal Planner {updateInfo.latest} is available
+              <span style={{ fontWeight: 400, opacity: 0.8, marginLeft: 8 }}>
+                (you have {updateInfo.current})
+              </span>
+            </span>
+            <a href={updateInfo.download_url} target="_blank" rel="noreferrer"
+              style={{
+                background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
+                color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
+                fontWeight: 700, textDecoration: 'none', flexShrink: 0,
+              }}>
+              Download Update →
+            </a>
+            <button onClick={() => setUpdateDismissed(true)} style={{
+              background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)',
+              cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0,
+            }}>
+              <X size={15} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div style={{ display: 'flex', height: '100vh', position: 'relative', zIndex: 1 }}>
         <Sidebar />
         <AnimatedRoutes />

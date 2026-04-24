@@ -120,8 +120,17 @@ class PersonalPlannerApp:
     PORT = 7432
 
     def __init__(self, lock_srv: socket.socket):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        log_path = os.path.join(base_dir, 'planner.log')
+        # When running as a PyInstaller bundle sys.frozen is True.
+        # App files (icon, frontend) live in sys._MEIPASS; user data goes to AppData.
+        if getattr(sys, 'frozen', False):
+            base_dir     = sys._MEIPASS                             # bundled files
+            user_dir     = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'PersonalPlanner')
+            os.makedirs(user_dir, exist_ok=True)
+            log_path     = os.path.join(user_dir, 'planner.log')
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            log_path = os.path.join(base_dir, 'planner.log')
+
         logging.basicConfig(
             filename=log_path, level=logging.WARNING,
             format='%(asctime)s %(levelname)s %(name)s: %(message)s',
