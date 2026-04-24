@@ -50,7 +50,7 @@ echo       Done.
 
 :: ── Step 3: Download Ollama installer ────────────────────────
 echo [3/6] Downloading Ollama installer (bundled for offline AI setup)...
-powershell -Command "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'OllamaSetup.exe' -UseBasicParsing"
+powershell -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'OllamaSetup.exe' -UseBasicParsing"
 if not exist OllamaSetup.exe (
     echo [WARN] Could not download OllamaSetup.exe.
     echo        The installer will still work but Ollama/AI features will not be bundled.

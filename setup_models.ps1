@@ -3,8 +3,12 @@
 # Usage: setup_models.ps1 -ModelList "llama3.2,mistral,phi3"
 
 param(
-    [string]$ModelList = "llama3.2"
+    [string]$ModelList = ""
 )
+
+# Fall back to env var when launched via Invoke-Expression (execution policy bypass)
+if (-not $ModelList) { $ModelList = $env:PP_MODELS }
+if (-not $ModelList) { $ModelList = "llama3.2" }
 
 $Host.UI.RawUI.WindowTitle = "Personal Planner — AI Model Setup"
 

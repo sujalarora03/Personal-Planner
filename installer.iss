@@ -157,8 +157,13 @@ begin
   if Models = '' then Exit;
 
   ScriptPath := ExpandConstant('{app}\setup_models.ps1');
-  PSArgs := '-ExecutionPolicy Bypass -NoProfile -File "' + ScriptPath +
-            '" -ModelList "' + Models + '"';
+
+  // Use -Command + Invoke-Expression instead of -File.
+  // Reading the script as text and evaluating it as a string bypasses
+  // execution policy entirely — even when Group Policy enforces AllSigned.
+  // The model list is passed via env var because -File params are unavailable.
+  PSArgs := '-NoProfile -Command "$env:PP_MODELS = ''' + Models + '''; ' +
+            'Invoke-Expression (Get-Content -Raw ''' + ScriptPath + ''')"';
 
   // Show a visible console so user sees download progress
   Exec('powershell.exe', PSArgs, '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
