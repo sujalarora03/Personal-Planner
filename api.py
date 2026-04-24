@@ -270,6 +270,7 @@ class ProfileUpdate(BaseModel):
     company: str = ""
     role: str = ""
     experience_years: float = 0
+    youtube_api_key: str = ""
 
 @app.get("/api/profile")
 def get_profile():
@@ -280,7 +281,8 @@ def get_profile():
 def save_profile(body: ProfileUpdate):
     db.save_profile(name=body.name, birthdate=body.birthdate,
                     company=body.company, role=body.role,
-                    experience_years=body.experience_years)
+                    experience_years=body.experience_years,
+                    youtube_api_key=body.youtube_api_key)
     return {"ok": True}
 
 @app.get("/api/skills")
@@ -491,6 +493,42 @@ def music_preview(artist: str = "", title: str = ""):
                     "collection":  t.get("collectionName", ""),
                 }
         return {"found": False}
+    except Exception as e:
+        return {"found": False, "error": str(e)}
+
+
+@app.get("/api/music/youtube")
+def youtube_search(artist: str = "", title: str = ""):
+    """Search YouTube Data API v3 for a full song video and return its video ID."""
+    # Prefer key from DB profile over environment variable
+    profile = db.get_profile()
+    key = (profile or {}).get("youtube_api_key", "").strip() or os.environ.get("YOUTUBE_API_KEY", "")
+    if not key:
+        return {"found": False, "error": "No YouTube API key configured. Add it in Profile → API Keys."}
+    q = f"{artist} {title} official audio"
+    try:
+        import requests as _r
+        resp = _r.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={
+                "key": key, "q": q, "part": "snippet",
+                "type": "video", "maxResults": 3,
+                "videoCategoryId": "10",   # Music category
+            },
+            timeout=8,
+        )
+        data  = resp.json()
+        items = data.get("items", [])
+        if not items:
+            return {"found": False}
+        item = items[0]
+        return {
+            "found":     True,
+            "video_id":  item["id"]["videoId"],
+            "yt_title":  item["snippet"]["title"],
+            "channel":   item["snippet"]["channelTitle"],
+            "thumbnail": item["snippet"]["thumbnails"].get("medium", {}).get("url", ""),
+        }
     except Exception as e:
         return {"found": False, "error": str(e)}
 

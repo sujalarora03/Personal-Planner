@@ -116,6 +116,7 @@ class Database:
                     company TEXT DEFAULT '',
                     role TEXT DEFAULT '',
                     experience_years REAL DEFAULT 0,
+                    youtube_api_key TEXT DEFAULT '',
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -521,20 +522,26 @@ class Database:
     # ── USER PROFILE ───────────────────────────────────────────────────────
 
     def save_profile(self, name: str, birthdate: str, company: str,
-                     role: str, experience_years: float):
+                     role: str, experience_years: float, youtube_api_key: str = ''):
         with self.get_connection() as conn:
+            # Add column if it doesn't exist yet (migration for existing DBs)
+            try:
+                conn.execute('ALTER TABLE user_profile ADD COLUMN youtube_api_key TEXT DEFAULT ""')
+            except Exception:
+                pass
             conn.execute('''
                 INSERT INTO user_profile
-                    (id, name, birthdate, company, role, experience_years, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, ?)
+                    (id, name, birthdate, company, role, experience_years, youtube_api_key, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     birthdate=excluded.birthdate,
                     company=excluded.company,
                     role=excluded.role,
                     experience_years=excluded.experience_years,
+                    youtube_api_key=excluded.youtube_api_key,
                     updated_at=excluded.updated_at
-            ''', (name, birthdate, company, role, experience_years,
+            ''', (name, birthdate, company, role, experience_years, youtube_api_key,
                   datetime.now().isoformat()))
             conn.commit()
 
