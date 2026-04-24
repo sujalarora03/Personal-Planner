@@ -76,22 +76,23 @@ echo       Done. Bundle is in dist\PersonalPlanner\
 
 :: ── Step 5: Find Inno Setup ───────────────────────────────────
 echo [5/6] Looking for Inno Setup 6...
-set ISCC=""
+set "ISCC="
 
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe"       set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 
-if %ISCC%=="" (
+if not defined ISCC (
     echo.
-    echo  [!] Inno Setup not found.
+    echo  [!] Inno Setup 6 not found on this PC.
     echo      Download and install it from: https://jrsoftware.org/isdl.php
     echo      Then re-run this script to create the installer .exe.
     echo.
-    echo      The PyInstaller bundle is already ready in: dist\PersonalPlanner\
-    echo      You can run PersonalPlanner.exe from there directly.
+    echo      The PyInstaller bundle is ready at: dist\PersonalPlanner\PersonalPlanner.exe
+    echo      You can test the app by running that directly.
     echo.
     pause & exit /b 0
 )
+echo       Found: %ISCC%
 
 :: ── Step 6: Build installer ───────────────────────────────────
 echo [6/6] Compiling Inno Setup installer...
