@@ -162,7 +162,7 @@ class LandingTab:
         )
         version_badge.grid(row=0, column=1, rowspan=2, sticky="ne", pady=(4, 0))
         ctk.CTkLabel(
-            version_badge, text="v0.5 BETA",
+            version_badge, text="v0.7 BETA",
             font=("Segoe UI", 10, "bold"), text_color="#a78bfa",
             padx=12, pady=6
         ).pack()

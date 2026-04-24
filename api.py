@@ -419,59 +419,80 @@ class MoodRequest(BaseModel):
 
 @app.post("/api/mood/suggest")
 def mood_suggest(body: MoodRequest):
-    """Stream song suggestions based on the user's mood."""
-    profile = db.get_profile() or {}
-    name    = (profile.get("name") or "").split(" ")[0]
+    """Return structured JSON song suggestions based on mood."""
+    import re as _re3, json as _j
 
-    name_part    = f"The user's name is {name}. " if name else ""
-    context_part = f"Additional context: {body.context}. " if body.context.strip() else ""
+    profile   = db.get_profile() or {}
+    name      = (profile.get("name") or "").split(" ")[0]
+    name_part = f"The listener's name is {name}. " if name else ""
+    ctx_part  = f"Extra preferences: {body.context}. " if body.context.strip() else ""
 
     system = (
-        "You are a music expert and personal DJ. "
-        "Given the user's mood, suggest 8 songs that perfectly match it. "
-        "For each song include: artist, song title, and a one-line reason why it fits the mood. "
-        "Format each entry as: [Artist] - [Song Title] | [reason]. "
-        "Be specific and diverse across genres. Keep reasons under 15 words each."
+        "You are a music expert. Output ONLY a valid JSON array — no extra text, "
+        "no markdown fences, nothing else. "
+        'Format: [{"artist":"Artist Name","title":"Song Title"}, ...] '
+        "Suggest exactly 8 songs that match the mood. Be diverse across genres and eras."
     )
-    prompt = (
-        f"{name_part}{context_part}"
-        f"My current mood is: {body.mood}. "
-        "Suggest 8 songs that match this mood perfectly. "
-        "Include a mix of genres and eras."
-    )
+    prompt = f"{name_part}{ctx_part}Mood: {body.mood}"
 
-    def stream():
-        try:
-            import requests as _r, json as _j
-            resp = _r.post(
-                "http://localhost:11434/api/chat",
-                json={
-                    "model": body.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": prompt},
-                    ],
-                    "stream": True,
-                },
-                stream=True, timeout=60,
-            )
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                try:
-                    data  = _j.loads(line)
-                    chunk = data.get("message", {}).get("content", "")
-                    if chunk:
-                        yield chunk
-                    if data.get("done"):
-                        break
-                except Exception:
-                    pass
-        except Exception as e:
-            yield f"⚠ {e}"
+    try:
+        import requests as _r
+        resp = _r.post(
+            "http://localhost:11434/api/chat",
+            json={
+                "model":    body.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": prompt},
+                ],
+                "stream": False,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "").strip()
+        # Strip markdown fences if present
+        content = _re3.sub(r"```[a-z]*\n?", "", content).strip("`").strip()
+        songs   = _j.loads(content)
+        if isinstance(songs, list):
+            return {"songs": [{"artist": s.get("artist",""), "title": s.get("title","")} for s in songs[:8]]}
+        return {"songs": [], "error": "Unexpected format from model"}
+    except _r.exceptions.ConnectionError:
+        return {"songs": [], "error": "Ollama not running — start it with: ollama serve"}
+    except _j.JSONDecodeError:
+        return {"songs": [], "error": "Model returned non-JSON. Try again or use a different model."}
+    except Exception as e:
+        return {"songs": [], "error": str(e)}
 
-    return StreamingResponse(stream(), media_type="text/plain")
+
+@app.get("/api/music/preview")
+def music_preview(artist: str = "", title: str = ""):
+    """Proxy iTunes search to return a 30-second preview URL + metadata."""
+    try:
+        import requests as _r
+        q    = f"{artist} {title}".strip()
+        resp = _r.get(
+            "https://itunes.apple.com/search",
+            params={"term": q, "media": "music", "entity": "song", "limit": 5},
+            timeout=6,
+        )
+        results = resp.json().get("results", [])
+        for t in results:
+            if t.get("previewUrl"):
+                art = t.get("artworkUrl100", "")
+                art = art.replace("100x100bb", "300x300bb").replace("100x100", "300x300")
+                return {
+                    "found":       True,
+                    "preview_url": t["previewUrl"],
+                    "artwork_url": art,
+                    "track_name":  t.get("trackName", title),
+                    "artist_name": t.get("artistName", artist),
+                    "genre":       t.get("primaryGenreName", ""),
+                    "collection":  t.get("collectionName", ""),
+                }
+        return {"found": False}
+    except Exception as e:
+        return {"found": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
