@@ -158,13 +158,14 @@ begin
 
   ScriptPath := ExpandConstant('{app}\setup_models.ps1');
 
-  // Use -Command + Invoke-Expression instead of -File.
-  // Reading the script as text and evaluating it as a string bypasses
-  // execution policy entirely — even when Group Policy enforces AllSigned.
-  // The model list is passed via env var because -File params are unavailable.
+  // Use -Command + Invoke-Expression to bypass execution policy
+  // (Group Policy blocks -File but not inline evaluated strings).
+  // Model list is passed via env var since -File params aren't available here.
   PSArgs := '-NoProfile -Command "$env:PP_MODELS = ''' + Models + '''; ' +
             'Invoke-Expression (Get-Content -Raw ''' + ScriptPath + ''')"';
 
-  // Show a visible console so user sees download progress
-  Exec('powershell.exe', PSArgs, '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  // Launch with ewNoWait — installer closes immediately, download runs in
+  // a separate visible console window. Model downloads can take 30+ minutes
+  // and should not block or appear to freeze the installer.
+  Exec('powershell.exe', PSArgs, '', SW_SHOW, ewNoWait, ResultCode);
 end;
