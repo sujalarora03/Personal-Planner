@@ -530,9 +530,15 @@ def save_message(body: ChatMessage):
 
 _TOOLS_SPEC = """
 You have access to the following TOOLS. When you want to use one, emit EXACTLY
-this pattern (nothing else on the same line):
+this pattern — the opening tag, one JSON object, then the closing tag, all on one block:
 
 <tool_call>{"tool": "TOOL_NAME", "args": {...}}</tool_call>
+
+CRITICAL FORMAT RULES:
+- ALWAYS use exactly the key "args" (with the letter s) — never "arg".
+- ALWAYS close the tag with </tool_call> immediately after the JSON.
+- Do NOT add any text between <tool_call> and </tool_call> other than the JSON.
+- Do NOT emit the tool call as plain text or markdown — only inside the tags.
 
 After each tool call you will receive a <tool_result> block. You may call
 multiple tools in sequence. Then give your final natural-language reply.
@@ -670,9 +676,12 @@ def chat_stream(body: ChatStreamRequest):
         rendered_parts = []
 
         def _strip_tool_tags(text: str) -> str:
-            # Hide raw tool markup from users while preserving natural language text.
+            # Remove properly closed tool_call blocks
             text = _re2.sub(r"<tool_call>.*?</tool_call>", "", text, flags=_re2.DOTALL)
-            text = _re2.sub(r"<tool_[^>]+>.*?</tool_[^>]+>", "", text, flags=_re2.DOTALL)
+            # Remove unclosed tool_call tags (model forgot the closing tag) — consume to end of string
+            text = _re2.sub(r"<tool_call>.*\Z", "", text, flags=_re2.DOTALL)
+            # Remove any remaining bare tool tags (tool_result etc.)
+            text = _re2.sub(r"</?tool_\w+>", "", text)
             return text
 
         for _round in range(MAX_TOOL_ROUNDS):
@@ -729,8 +738,10 @@ def chat_stream(body: ChatStreamRequest):
                 rendered_parts.append(visible_text)
                 yield visible_text
 
-            # Check for tool calls in the response
-            tool_calls = _re2.findall(r"<tool_call>(.*?)</tool_call>", assistant_text, _re2.DOTALL)
+            # Check for tool calls — handle both properly closed and unclosed tags
+            tool_calls = _re2.findall(r"<tool_call>(.*?)(?:</tool_call>|\Z)", assistant_text, _re2.DOTALL)
+            # Filter out empty captures (e.g. from a stray <tool_call></tool_call>)
+            tool_calls = [tc for tc in tool_calls if tc.strip()]
             if not tool_calls:
                 # No tools — we're done
                 # Persist to DB
@@ -750,7 +761,8 @@ def chat_stream(body: ChatStreamRequest):
                             parsed = parsed[4:].strip()
                     call   = _j.loads(parsed)
                     tool   = call.get("tool", "")
-                    args   = call.get("args", {})
+                    # Normalise: some models emit "arg" (no s) instead of "args"
+                    args   = call.get("args", call.get("arg", call.get("arguments", {})))
                     result = _run_tool_server(tool, args)
                 except Exception as exc:
                     tool = "unknown"
