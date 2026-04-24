@@ -1,9 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for Personal Planner
+# Requires PyInstaller 6+
 # Run from the PersonalPlanner\ directory:
-#   pyinstaller PersonalPlanner.spec --noconfirm
-
-block_cipher = None
+#   python -m PyInstaller PersonalPlanner.spec --noconfirm
 
 datas = [
     # React frontend (built output)
@@ -58,13 +57,10 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'scipy', 'numpy', 'PyQt5', 'PyQt6'],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zlib_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,

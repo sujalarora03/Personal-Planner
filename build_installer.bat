@@ -58,21 +58,39 @@ call :log "      Done."
 :: ── Step 2: Build React frontend ─────────────────────────────────
 call :log ""
 call :log "[2/6] Building React frontend..."
+
+:: Skip rebuild entirely if dist is already built — saves time and avoids
+:: npm hanging on corporate/proxy networks. Use REBUILD=1 to force a rebuild.
+if exist "frontend\dist\index.html" (
+    if /i not "%REBUILD%"=="1" (
+        call :log "      frontend\dist already exists — skipping npm build."
+        call :log "      (Set REBUILD=1 before running this bat to force a rebuild)"
+        goto :after_frontend
+    )
+)
+
 cd frontend
 
 :: Force npm to use cmd.exe - avoids PowerShell execution policy blocks
 npm config set script-shell "%SystemRoot%\System32\cmd.exe" 2>nul
 
-call :log "      Running npm install (output shown live below)..."
+:: Try install with cached/offline packages first to avoid hanging on proxy
+call :log "      Running npm install (output shown live)..."
 echo ---------------------------------------------------------------
-call npm install
+call npm install --prefer-offline --no-audit --no-fund
 echo ---------------------------------------------------------------
 if errorlevel 1 (
-    call :log "[ERROR] npm install failed."
-    cd .. & pause & exit /b 1
+    call :log "      --prefer-offline failed, retrying with full download..."
+    echo ---------------------------------------------------------------
+    call npm install --no-audit --no-fund
+    echo ---------------------------------------------------------------
+    if errorlevel 1 (
+        call :log "[ERROR] npm install failed. Check network / proxy settings."
+        cd .. & pause & exit /b 1
+    )
 )
 
-call :log "      Running npm run build (output shown live below)..."
+call :log "      Running npm run build (output shown live)..."
 echo ---------------------------------------------------------------
 call npm run build
 echo ---------------------------------------------------------------
@@ -81,7 +99,9 @@ if errorlevel 1 (
     cd .. & pause & exit /b 1
 )
 cd ..
-call :log "      Frontend built successfully."
+
+:after_frontend
+call :log "      Frontend ready."
 
 :: ── Step 3: Download Ollama installer ─────────────────────────────────
 call :log ""

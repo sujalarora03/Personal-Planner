@@ -30,6 +30,12 @@ venv.bak/
 # Distribution / packaging
 .Python
 
+# Ignore Python PyInstaller output but NOT the React frontend dist
+build/
+dist/
+!frontend/dist/
+!frontend/dist/**
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

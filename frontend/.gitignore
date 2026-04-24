@@ -8,7 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist is intentionally tracked so other PCs can build without running npm
+# dist
 dist-ssr
 *.local
 
