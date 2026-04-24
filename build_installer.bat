@@ -41,6 +41,8 @@ echo       Done.
 :: ── Step 2: Build React frontend ──────────────────────────────
 echo [2/6] Building React frontend...
 cd frontend
+:: Force npm to use cmd.exe for scripts — avoids PowerShell execution policy blocks
+npm config set script-shell "%SystemRoot%\System32\cmd.exe" 2>nul
 call npm install --silent
 if errorlevel 1 ( echo [ERROR] npm install failed & cd .. & pause & exit /b 1 )
 call npm run build
@@ -62,7 +64,10 @@ echo       Done.
 
 :: ── Step 4: PyInstaller ───────────────────────────────────────
 echo [4/6] Bundling app with PyInstaller (this may take 2-5 minutes)...
-pyinstaller PersonalPlanner.spec --noconfirm --clean
+:: Use "python -m PyInstaller" instead of the pyinstaller command —
+:: the command may not be on PATH on a fresh PC, but the module always works
+:: as long as pip installed it into the active Python.
+python -m PyInstaller PersonalPlanner.spec --noconfirm --clean
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed. See output above for details.
     pause & exit /b 1
