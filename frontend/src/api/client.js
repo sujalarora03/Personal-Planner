@@ -70,4 +70,26 @@ export const api = {
 
   // App updates
   checkUpdate: () => req('GET', '/update/check'),
+
+  // Export
+  exportData: () => fetch('/api/export').then(r => r.blob()),
+
+  // Habits
+  getHabits:    () => req('GET', '/habits'),
+  createHabit:  (body) => req('POST', '/habits', body),
+  toggleHabit:  (id) => req('POST', `/habits/${id}/log`),
+  deleteHabit:  (id) => req('DELETE', `/habits/${id}`),
+
+  // Notes
+  getNotes:     (date, project_id) => req('GET', '/notes?' + new URLSearchParams(
+    Object.fromEntries(Object.entries({ note_date: date, project_id }).filter(([,v]) => v != null)))),
+  createNote:   (body) => req('POST', '/notes', body),
+  updateNote:   (id, body) => req('PATCH', `/notes/${id}`, body),
+  deleteNote:   (id) => req('DELETE', `/notes/${id}`),
+
+  // Planner
+  getTodayPlanner: () => req('GET', '/planner/today'),
+
+  // Weekly review
+  getWeeklyReview: (model) => req('GET', '/review/weekly' + (model ? `?model=${model}` : '')),
 }

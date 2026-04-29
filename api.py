@@ -8,7 +8,7 @@ import sys
 import threading
 import json
 import random
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -27,9 +27,13 @@ db.init_db()
 # ── CORS (PyWebView uses file:// or localhost origin) ─────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://localhost:7432",
+        "http://127.0.0.1:7432",
+        "null",          # PyWebView / file:// sends Origin: null
+    ],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # ── Serve built React frontend ─────────────────────────────────────────────────
@@ -56,6 +60,7 @@ class TaskCreate(BaseModel):
     category: str = "General"
     priority: str = "Medium"
     due_date: Optional[str] = None
+    project_id: Optional[int] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -64,24 +69,27 @@ class TaskUpdate(BaseModel):
     priority: Optional[str] = None
     due_date: Optional[str] = None
     status: Optional[str] = None
+    project_id: Optional[int] = None
 
 @app.get("/api/tasks")
 def get_tasks(status: Optional[str] = None, category: Optional[str] = None,
-              include_archived: bool = False):
-    rows = db.get_tasks(status=status, category=category, include_archived=include_archived)
+              include_archived: bool = False, project_id: Optional[int] = None):
+    rows = db.get_tasks(status=status, category=category,
+                        include_archived=include_archived, project_id=project_id)
     return [dict(r) for r in rows]
 
 @app.post("/api/tasks", status_code=201)
 def create_task(body: TaskCreate):
     db.add_task(title=body.title, description=body.description,
                 category=body.category, priority=body.priority,
-                due_date=body.due_date)
+                due_date=body.due_date, project_id=body.project_id)
     return {"ok": True}
 
 @app.patch("/api/tasks/{task_id}")
 def update_task(task_id: int, body: TaskUpdate):
-    if body.status:
-        db.update_task_status(task_id, body.status)
+    updates = body.model_dump(exclude_none=True)
+    if updates:
+        db.update_task_fields(task_id, **updates)
     return {"ok": True}
 
 @app.patch("/api/tasks/{task_id}/archive")
@@ -168,9 +176,13 @@ def get_monthly():
 @app.post("/api/work-hours", status_code=201)
 def log_work(body: WorkSessionCreate):
     d = body.date or date.today().isoformat()
+    now = datetime.now()
+    start_dt = now - timedelta(minutes=body.duration_minutes)
+    start_time = f"{d}T{start_dt.strftime('%H:%M:%S')}"
+    end_time   = f"{d}T{now.strftime('%H:%M:%S')}"
     db.add_work_session(
-        start_time=f"{d}T09:00:00",
-        end_time=f"{d}T09:{body.duration_minutes:02d}:00",
+        start_time=start_time,
+        end_time=end_time,
         duration_minutes=body.duration_minutes,
         description=body.description,
         project_id=body.project_id,
@@ -201,7 +213,11 @@ class TargetCreate(BaseModel):
 class TargetUpdate(BaseModel):
     current_value: Optional[float] = None
     title: Optional[str] = None
+    description: Optional[str] = None
     target_value: Optional[float] = None
+    category: Optional[str] = None
+    unit: Optional[str] = None
+    color: Optional[str] = None
 
 @app.get("/api/targets")
 def get_targets(year: Optional[int] = None):
@@ -216,8 +232,9 @@ def create_target(body: TargetCreate):
 
 @app.patch("/api/targets/{target_id}")
 def update_target(target_id: int, body: TargetUpdate):
-    db.update_target(target_id, current_value=body.current_value,
-                     title=body.title, target_value=body.target_value)
+    updates = body.model_dump(exclude_none=True)
+    if updates:
+        db.update_target(target_id, **updates)
     return {"ok": True}
 
 @app.delete("/api/targets/{target_id}")
@@ -239,6 +256,10 @@ class CourseCreate(BaseModel):
     notes: str = ""
 
 class CourseUpdate(BaseModel):
+    title: Optional[str] = None
+    provider: Optional[str] = None
+    url: Optional[str] = None
+    category: Optional[str] = None
     status: Optional[str] = None
     progress: Optional[int] = None
     notes: Optional[str] = None
@@ -256,8 +277,9 @@ def create_course(body: CourseCreate):
 
 @app.patch("/api/courses/{course_id}")
 def update_course(course_id: int, body: CourseUpdate):
-    db.update_course(course_id, status=body.status, progress=body.progress,
-                     notes=body.notes, rating=body.rating)
+    updates = body.model_dump(exclude_none=True)
+    if updates:
+        db.update_course(course_id, **updates)
     return {"ok": True}
 
 @app.delete("/api/courses/{course_id}")
@@ -338,6 +360,156 @@ def dashboard():
         "courses":       len(courses),
         "targets":       len(targets),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA EXPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from fastapi.responses import JSONResponse
+
+@app.get("/api/export")
+def export_data():
+    """Export all user data as a single JSON download."""
+    data = db.export_all()
+    filename = f"personal-planner-export-{date.today().isoformat()}.json"
+    return JSONResponse(
+        content=data,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HABITS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class HabitCreate(BaseModel):
+    name: str
+    color: str = '#7c3aed'
+    icon: str = '✓'
+
+@app.get("/api/habits")
+def get_habits():
+    return db.get_habits()
+
+@app.post("/api/habits", status_code=201)
+def create_habit(body: HabitCreate):
+    db.add_habit(name=body.name, color=body.color, icon=body.icon)
+    return {"ok": True}
+
+@app.post("/api/habits/{habit_id}/log")
+def toggle_habit(habit_id: int):
+    checked = db.toggle_habit(habit_id)
+    return {"checked": checked}
+
+@app.delete("/api/habits/{habit_id}")
+def delete_habit(habit_id: int):
+    db.delete_habit(habit_id)
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class NoteCreate(BaseModel):
+    title: str = ""
+    content: str = ""
+    note_date: Optional[str] = None
+    project_id: Optional[int] = None
+
+class NoteUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    note_date: Optional[str] = None
+    project_id: Optional[int] = None
+
+@app.get("/api/notes")
+def get_notes(note_date: Optional[str] = None, project_id: Optional[int] = None):
+    return [dict(r) for r in db.get_notes(note_date=note_date, project_id=project_id)]
+
+@app.post("/api/notes", status_code=201)
+def create_note(body: NoteCreate):
+    note_id = db.add_note(title=body.title, content=body.content,
+                          note_date=body.note_date, project_id=body.project_id)
+    return {"ok": True, "id": note_id}
+
+@app.patch("/api/notes/{note_id}")
+def update_note(note_id: int, body: NoteUpdate):
+    updates = body.model_dump(exclude_none=True)
+    if updates:
+        db.update_note(note_id, **updates)
+    return {"ok": True}
+
+@app.delete("/api/notes/{note_id}")
+def delete_note(note_id: int):
+    db.delete_note(note_id)
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLANNER — today's unified view
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/planner/today")
+def get_today_planner():
+    return db.get_today_planner()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEEKLY AI REVIEW
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/review/weekly")
+def weekly_review(model: str = "llama3.2"):
+    today = date.today()
+    week_ago = (today - timedelta(days=7)).isoformat()
+    all_tasks = db.get_tasks()
+    done_this_week = [t for t in all_tasks if t.get('completed_at') and str(t['completed_at'])[:10] >= week_ago]
+    weekly_hours = db.get_weekly_hours()
+    total_min = sum(r['total_minutes'] for r in weekly_hours)
+    targets = db.get_targets(year=today.year)
+    profile = db.get_profile() or {}
+    name = (profile.get('name') or '').split()[0] if profile.get('name') else ''
+
+    stats = {
+        "done": len(done_this_week),
+        "hours": round(total_min / 60, 1),
+        "targets": len(targets),
+    }
+
+    summary = (
+        f"Tasks completed this week: {len(done_this_week)}. "
+        f"Work time logged: {total_min // 60}h {total_min % 60}m. "
+        f"Active year targets: {len(targets)}."
+    )
+    if done_this_week:
+        titles = ', '.join(str(t.get('title','')) for t in done_this_week[:5])
+        summary += f" Completed: {titles}."
+
+    try:
+        import requests as _r
+        resp = _r.post("http://localhost:11434/api/chat", json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Write a short, warm, encouraging weekly productivity review in 3-4 sentences. Be specific and actionable."},
+                {"role": "user", "content": f"Weekly review{' for ' + name if name else ''}:\n{summary}"},
+            ],
+            "stream": False,
+        }, timeout=30)
+        if resp.status_code == 200:
+            text = (resp.json().get('message', {}).get('content', '') or '').strip()
+            if len(text) > 10:
+                return {"review": text, "source": "ollama", "stats": stats}
+    except Exception:
+        pass
+
+    fallback = (
+        f"This week you logged {total_min // 60}h {total_min % 60}m of work"
+        f" and completed {len(done_this_week)} task{'s' if len(done_this_week) != 1 else ''}. "
+        "Keep the momentum going — every session counts!"
+    )
+    return {"review": fallback, "source": "fallback", "stats": stats}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -623,11 +795,12 @@ query_data(sql)
 _SYSTEM_PROMPT = """You are an intelligent personal productivity assistant embedded in a desktop planner app. You have full knowledge of the user's professional profile, career history, skills, tasks, projects, courses, and goals shown in the context below. Use this to give personalised, relevant answers.
 
 MANDATORY RULES — follow without exception:
-0. CORE RULE — only call write tools (add_task, add_course, add_project, log_work_hours, update_*) when the user EXPLICITLY asks to add, create, log, or record something. For casual conversation or questions — respond in plain text ONLY.
-1. When explicitly asked to ADD items → call the tool IMMEDIATELY. Do NOT list them as text first.
-2. NEVER output raw SQL in your reply text. SQL only goes inside <tool_call> blocks.
-3. NEVER just describe what you WOULD do — DO it with a tool call, then confirm in plain English.
-4. After every tool call you MUST wait for the <tool_result>, then continue.
+0. CORE RULE — only call write tools (add_task, add_course, add_project, log_work_hours, update_*) when the user EXPLICITLY uses words like "add", "create", "log", or "record". Suggestive words like "suggest", "recommend", "what should I", "what courses" → respond in plain text ONLY, never call a write tool.
+1. SUGGEST mode: when asked to suggest, recommend, or list items → output a numbered text list ONLY. Then end with "Let me know which ones you'd like me to add to your planner."
+2. ADD mode: when explicitly asked to ADD specific items → call the tool IMMEDIATELY after each item. Do NOT list them as text first.
+3. NEVER output raw SQL in your reply text. SQL only goes inside <tool_call> blocks.
+4. NEVER just describe what you WOULD do — DO it with a tool call, then confirm in plain English.
+5. After every tool call you MUST wait for the <tool_result>, then continue.
 
 {tools}
 
@@ -647,45 +820,65 @@ def _run_tool_server(tool: str, args: dict) -> str:
     """Execute a tool call against the database and return a result string."""
     try:
         if tool == "add_task":
-            db.add_task(title=args["title"],
+            title = args.get("title") or args.get("name") or args.get("task_title", "")
+            if not title:
+                return "Tool error: 'title' is required for add_task"
+            db.add_task(title=title,
                         description=args.get("description", ""),
                         category=args.get("category", "General"),
                         priority=args.get("priority", "Medium"),
                         due_date=args.get("due_date"))
-            return f"Task added: \"{args['title']}\""
+            return f"Task added: \"{title}\""
 
         elif tool == "update_task_status":
-            db.update_task_status(int(args["task_id"]), args["status"])
-            return f"Task {args['task_id']} status → {args['status']}"
+            task_id_val = args.get("task_id") or args.get("id") or args.get("task", "")
+            status_val  = args.get("status", "")
+            if not task_id_val or not status_val:
+                return "Tool error: 'task_id' and 'status' are required for update_task_status"
+            db.update_task_status(int(task_id_val), status_val)
+            return f"Task {task_id_val} status → {status_val}"
 
         elif tool == "add_course":
-            db.add_course(title=args["title"],
+            title = args.get("title") or args.get("name") or args.get("course_title") or args.get("course", "")
+            if not title:
+                return "Tool error: 'title' is required for add_course"
+            db.add_course(title=title,
                           provider=args.get("provider", ""),
                           url=args.get("url", ""),
                           category=args.get("category", "Learning"),
                           status=args.get("status", "Planned"),
                           notes=args.get("notes", ""))
-            return f"Course added: \"{args['title']}\""
+            return f"Course added: \"{title}\""
 
         elif tool == "add_project":
-            db.add_project(name=args["name"],
+            proj_name = args.get("name") or args.get("title") or args.get("project_name", "")
+            if not proj_name:
+                return "Tool error: 'name' is required for add_project"
+            db.add_project(name=proj_name,
                            description=args.get("description", ""),
                            color=args.get("color", "#3b82f6"),
                            start_date=args.get("start_date"),
                            target_date=args.get("target_date"))
-            return f"Project added: \"{args['name']}\""
+            return f"Project added: \"{proj_name}\""
 
         elif tool == "update_target":
-            db.update_target(int(args["target_id"]),
-                             current_value=float(args["current_value"]))
-            return f"Target {args['target_id']} updated to {args['current_value']}"
+            target_id_val = args.get("target_id") or args.get("id", "")
+            current_val   = args.get("current_value") or args.get("value") or args.get("progress")
+            if not target_id_val or current_val is None:
+                return "Tool error: 'target_id' and 'current_value' are required for update_target"
+            db.update_target(int(target_id_val),
+                             current_value=float(current_val))
+            return f"Target {target_id_val} updated to {current_val}"
 
         elif tool == "log_work_hours":
+            from datetime import datetime as _dt, timedelta as _td
             mins  = int(args["duration_minutes"])
             d_str = args.get("date", date.today().isoformat())
             desc  = args.get("description", "")
             cat   = args.get("category", "Work")
-            db.add_work_session(f"{d_str}T09:00:00", f"{d_str}T09:{mins:02d}:00",
+            start_dt = _dt.fromisoformat(f"{d_str}T09:00:00")
+            end_dt   = start_dt + _td(minutes=mins)
+            db.add_work_session(start_dt.isoformat(), end_dt.isoformat(),
                                 mins, desc, None, cat, d_str)
             return f"Logged {mins} min of '{cat}' on {d_str}"
 

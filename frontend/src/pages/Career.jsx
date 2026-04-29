@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Upload, Trash2 } from 'lucide-react'
 
@@ -11,6 +11,7 @@ export default function Career() {
   const [loading, setLoading]   = useState(false)
   const [model, setModel]       = useState('llama3.2')
   const [prompt, setPrompt]     = useState('Skill Gap Analysis')
+  const [delConfirm, setDelConfirm] = useState(null)
 
   const loadResumes = async () => {
     const data = await fetch('/api/resumes').then(r => r.json())
@@ -18,7 +19,7 @@ export default function Career() {
     if (!activeId && data.length > 0) setActiveId(data[0].id)
   }
 
-  useState(() => { loadResumes() }, [])
+  useEffect(() => { loadResumes() }, [])
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -62,9 +63,9 @@ export default function Career() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete resume?')) return
     await fetch(`/api/resumes/${id}`, { method: 'DELETE' })
     if (activeId === id) setActiveId(null)
+    setDelConfirm(null)
     loadResumes()
   }
 
@@ -111,7 +112,7 @@ export default function Career() {
                   <div style={{ fontSize:13, fontWeight:600, color: activeId===r.id?'white':'rgba(255,255,255,0.7)' }}>{r.filename}</div>
                   <div style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>{r.uploaded_at?.slice(0,10)}</div>
                 </div>
-                <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); handleDelete(r.id) }}><Trash2 size={12}/></button>
+                <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); setDelConfirm(r) }}><Trash2 size={12}/></button>
               </div>
             ))}
           </motion.div>
@@ -153,6 +154,22 @@ export default function Career() {
           }}>{analysis}</pre>
         </motion.div>
       </div>
+
+      {delConfirm && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDelConfirm(null)}>
+          <motion.div className="modal-box" style={{ width:380 }}
+            initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }}>
+            <h2 style={{ fontSize:18, fontWeight:700, color:'#f87171', marginBottom:12 }}>🗑 Delete Resume?</h2>
+            <p style={{ color:'rgba(255,255,255,0.6)', marginBottom:24 }}>
+              "<strong>{delConfirm.filename}</strong>" will be permanently removed.
+            </p>
+            <div style={{ display:'flex', gap:10 }}>
+              <button className="btn btn-danger" style={{ flex:1 }} onClick={() => handleDelete(delConfirm.id)}>Delete</button>
+              <button className="btn btn-ghost" onClick={() => setDelConfirm(null)}>Cancel</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }

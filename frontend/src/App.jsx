@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
 import { Download, X } from 'lucide-react'
@@ -17,6 +17,10 @@ import Courses    from './pages/Courses'
 import Career     from './pages/Career'
 import AI         from './pages/AI'
 import Relax      from './pages/Relax'
+import Pomodoro   from './pages/Pomodoro'
+import Habits     from './pages/Habits'
+import Notes      from './pages/Notes'
+import Planner    from './pages/Planner'
 
 const pageVariants = {
   initial: { opacity: 0, x: 12 },
@@ -48,7 +52,10 @@ function AnimatedRoutes() {
           <Route path="/courses"    element={<Courses />} />
           <Route path="/career"     element={<Career />} />
           <Route path="/ai"         element={<AI />} />
-          <Route path="/relax"      element={<Relax />} />
+          <Route path="/relax"      element={<Relax />} />          <Route path="/focus"       element={<Pomodoro />} />
+          <Route path="/habits"      element={<Habits />} />
+          <Route path="/notes"       element={<Notes />} />
+          <Route path="/planner"     element={<Planner />} />          <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
@@ -237,7 +244,7 @@ function AppShell() {
           <motion.div
             initial={{ y: -60 }} animate={{ y: 0 }} exit={{ y: -60 }}
             style={{
-              position: 'fixed', top: 0, left: 220, right: 0, zIndex: 100,
+              position: 'fixed', top: 0, left: 'var(--sidebar-w, 220px)', right: 0, zIndex: 100,
               background: 'linear-gradient(90deg, rgba(124,58,237,0.92), rgba(6,182,212,0.88))',
               backdropFilter: 'blur(12px)',
               display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px',

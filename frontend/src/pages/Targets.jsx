@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Edit2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../api/client'
 import Modal from '../components/Modal'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['Personal','Career','Health','Finance','Learning','Other']
 
-function TargetForm({ onSave, onClose }) {
-  const [form, setForm] = useState({ title:'', description:'', category:'Personal', target_value:100, unit:'%', color:'#7c3aed' })
+function TargetForm({ initial, onSave, onClose, submitLabel = 'Add Goal' }) {
+  const [form, setForm] = useState(initial || { title:'', description:'', category:'Personal', target_value:100, unit:'%', color:'#7c3aed' })
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }))
   return (
     <form onSubmit={e => { e.preventDefault(); onSave(form) }} style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -27,7 +27,7 @@ function TargetForm({ onSave, onClose }) {
           <input type="color" value={form.color} onChange={e => set('color', e.target.value)} style={{ height:42, cursor:'pointer' }} /></div>
       </div>
       <div style={{ display:'flex', gap:10, marginTop:6 }}>
-        <button type="submit" className="btn btn-purple" style={{ flex:1 }}>Add Goal</button>
+        <button type="submit" className="btn btn-purple" style={{ flex:1 }}>{submitLabel}</button>
         <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
       </div>
     </form>
@@ -35,32 +35,55 @@ function TargetForm({ onSave, onClose }) {
 }
 
 export default function Targets() {
-  const [targets, setTargets] = useState([])
-  const [showAdd, setShowAdd] = useState(false)
+  const [targets, setTargets]   = useState([])
+  const [showAdd, setShowAdd]   = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
+  const [delConfirm, setDelConfirm] = useState(null)
+  const [search, setSearch]     = useState('')
+  const [loading, setLoading]   = useState(true)
+  const [year, setYear]         = useState(new Date().getFullYear())
 
-  const load = () => api.getTargets().then(setTargets).catch(() => {})
-  useEffect(() => { load() }, [])
+  const load = async () => {
+    setLoading(true)
+    try { await api.getTargets(year).then(setTargets) } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [year])
 
-  const handleAdd    = async (form) => { await api.createTarget(form); toast.success('Goal added!'); setShowAdd(false); load() }
-  const handleDelete = async (id)  => { if (!confirm('Delete this goal?')) return; await api.deleteTarget(id); toast('Deleted'); load() }
+  const handleAdd    = async (form) => { await api.createTarget({ ...form, year }); toast.success('Goal added!'); setShowAdd(false); load() }
+  const handleEdit   = async (form) => { await api.updateTarget(editTarget.id, form); toast.success('Goal updated!'); setEditTarget(null); load() }
+  const handleDelete = async (id)  => { await api.deleteTarget(id); toast('Goal deleted'); setDelConfirm(null); load() }
   const handleProgress = async (id, val) => { await api.updateTarget(id, { current_value: +val }); load() }
-
-  const year = new Date().getFullYear()
 
   return (
     <div className="page">
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
-        <div><h1 className="page-title">Year Targets {year}</h1><p className="page-sub">{targets.length} goal{targets.length !== 1 ? 's' : ''}</p></div>
-        <button className="btn btn-purple" onClick={() => setShowAdd(true)}><Plus size={16}/> Add Goal</button>
+        <div>
+          <h1 className="page-title">Year Targets</h1>
+          <p className="page-sub">{targets.length} goal{targets.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setYear(y => y - 1)} title="Previous year"><ChevronLeft size={15}/></button>
+          <span style={{ fontWeight:700, fontSize:18, minWidth:52, textAlign:'center', color:'#a78bfa' }}>{year}</span>
+          <button className="btn btn-ghost btn-sm" onClick={() => setYear(y => y + 1)} title="Next year"><ChevronRight size={15}/></button>
+          <button className="btn btn-purple" style={{ marginLeft:8 }} onClick={() => setShowAdd(true)}><Plus size={16}/> Add Goal</button>
+        </div>
       </div>
 
+      {/* Search */}
+      <div style={{ marginBottom:18 }}>
+        <input placeholder="Search goals…" value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth:280 }} />
+      </div>
+
+      {loading ? (
+        <div className="page-loading"><div className="spinner-ring" /><span>Loading goals…</span></div>
+      ) : (
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-        {targets.length === 0 && (
+        {targets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase())).length === 0 && (
           <div className="glass" style={{ padding:40, textAlign:'center', color:'rgba(255,255,255,0.3)' }}>
-            No goals yet. Set your first target for {year}!
+            {search ? `No goals match "${search}"` : `No goals yet. Set your first target for ${year}!`}
           </div>
         )}
-        {targets.map((t, i) => {
+        {targets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase())).map((t, i) => {
           const pct = t.target_value > 0 ? Math.min(100, Math.round(t.current_value / t.target_value * 100)) : 0
           return (
             <motion.div key={t.id} initial={{ opacity:0, x:-10 }} animate={{ opacity:1, x:0 }}
@@ -75,7 +98,10 @@ export default function Targets() {
                     <div style={{ fontSize:28, fontWeight:800, color: t.color, lineHeight:1 }}>{pct}%</div>
                     <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>{t.current_value} / {t.target_value} {t.unit}</div>
                   </div>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(t.id)}><Trash2 size={13}/></button>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <button className="btn btn-ghost btn-sm" title="Edit goal" onClick={() => setEditTarget(t)}><Edit2 size={13}/></button>
+                    <button className="btn btn-danger btn-sm" onClick={() => setDelConfirm(t)}><Trash2 size={13}/></button>
+                  </div>
                 </div>
               </div>
               <div className="progress-bar" style={{ marginBottom:10 }}>
@@ -95,8 +121,26 @@ export default function Targets() {
           )
         })}
       </div>
+      )}
 
-      {showAdd && <Modal title="New Year Goal" onClose={() => setShowAdd(false)}><TargetForm onSave={handleAdd} onClose={() => setShowAdd(false)} /></Modal>}
+      {showAdd && <Modal title="New Year Goal" onClose={() => setShowAdd(false)}><TargetForm onSave={handleAdd} onClose={() => setShowAdd(false)} submitLabel="Add Goal" /></Modal>}
+      {editTarget && <Modal title="Edit Goal" onClose={() => setEditTarget(null)}><TargetForm initial={editTarget} onSave={handleEdit} onClose={() => setEditTarget(null)} submitLabel="Save Changes" /></Modal>}
+
+      {delConfirm && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDelConfirm(null)}>
+          <motion.div className="modal-box" style={{ width:380 }}
+            initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }}>
+            <h2 style={{ fontSize:18, fontWeight:700, color:'#f87171', marginBottom:12 }}>🗑 Delete Goal?</h2>
+            <p style={{ color:'rgba(255,255,255,0.6)', marginBottom:24 }}>
+              "<strong>{delConfirm.title}</strong>" will be permanently removed.
+            </p>
+            <div style={{ display:'flex', gap:10 }}>
+              <button className="btn btn-danger" style={{ flex:1 }} onClick={() => handleDelete(delConfirm.id)}>Delete</button>
+              <button className="btn btn-ghost" onClick={() => setDelConfirm(null)}>Cancel</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }

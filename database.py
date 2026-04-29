@@ -3,7 +3,7 @@ import os
 import sys
 import shutil
 import glob
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 
 def _get_db_path() -> str:
@@ -149,12 +149,40 @@ class Database:
                     content TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS habits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    color TEXT DEFAULT '#7c3aed',
+                    icon TEXT DEFAULT '\u2713',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS habit_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    habit_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    UNIQUE(habit_id, date),
+                    FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT DEFAULT '',
+                    content TEXT DEFAULT '',
+                    note_date TEXT,
+                    project_id INTEGER,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+                );
             ''')
             conn.commit()
 
             # Schema migrations (safe to run every startup)
             for migration in [
                 "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0",
+                "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL",
             ]:
                 try:
                     conn.execute(migration)
@@ -164,30 +192,33 @@ class Database:
 
     # ── TASKS ──────────────────────────────────────────────────────────────
 
-    def add_task(self, title, description='', category='General', priority='Medium', due_date=None):
+    def add_task(self, title, description='', category='General', priority='Medium', due_date=None, project_id=None):
         with self.get_connection() as conn:
             conn.execute(
-                'INSERT INTO tasks (title, description, category, priority, due_date) VALUES (?, ?, ?, ?, ?)',
-                (title, description, category, priority, due_date)
+                'INSERT INTO tasks (title, description, category, priority, due_date, project_id) VALUES (?, ?, ?, ?, ?, ?)',
+                (title, description, category, priority, due_date, project_id)
             )
             conn.commit()
 
-    def get_tasks(self, status=None, category=None, include_archived=False):
+    def get_tasks(self, status=None, category=None, include_archived=False, project_id=None):
         with self.get_connection() as conn:
-            query = 'SELECT * FROM tasks'
+            query = 'SELECT t.*, p.name as project_name FROM tasks t LEFT JOIN projects p ON t.project_id = p.id'
             params = []
             conditions = []
             if not include_archived:
-                conditions.append('(archived IS NULL OR archived = 0)')
+                conditions.append('(t.archived IS NULL OR t.archived = 0)')
             if status:
-                conditions.append('status = ?')
+                conditions.append('t.status = ?')
                 params.append(status)
             if category:
-                conditions.append('category = ?')
+                conditions.append('t.category = ?')
                 params.append(category)
+            if project_id:
+                conditions.append('t.project_id = ?')
+                params.append(project_id)
             if conditions:
                 query += ' WHERE ' + ' AND '.join(conditions)
-            query += ' ORDER BY CASE priority WHEN "Urgent" THEN 1 WHEN "High" THEN 2 WHEN "Medium" THEN 3 ELSE 4 END, created_at DESC'
+            query += ' ORDER BY CASE t.priority WHEN "Urgent" THEN 1 WHEN "High" THEN 2 WHEN "Medium" THEN 3 ELSE 4 END, t.created_at DESC'
             return conn.execute(query, params).fetchall()
 
     def update_task_status(self, task_id, status):
@@ -196,6 +227,25 @@ class Database:
             conn.execute(
                 'UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?',
                 (status, completed_at, task_id)
+            )
+            conn.commit()
+
+    def update_task_fields(self, task_id, **kwargs):
+        """Partial update — only sets fields that are passed and not None."""
+        allowed = {'title', 'description', 'category', 'priority', 'due_date', 'status', 'project_id'}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        if not updates:
+            return
+        # Keep completed_at in sync when status changes
+        if updates.get('status') == 'Done':
+            updates['completed_at'] = datetime.now().isoformat()
+        elif updates.get('status') in ('Todo', 'In Progress'):
+            updates['completed_at'] = None
+        set_clause = ', '.join(f'{k} = ?' for k in updates)
+        with self.get_connection() as conn:
+            conn.execute(
+                f'UPDATE tasks SET {set_clause} WHERE id = ?',
+                list(updates.values()) + [task_id]
             )
             conn.commit()
 
@@ -438,6 +488,147 @@ class Database:
         with self.get_connection() as conn:
             conn.execute('DELETE FROM resumes WHERE id = ?', (resume_id,))
             conn.commit()
+
+    # ── EXPORT ─────────────────────────────────────────────────────────────
+
+    def export_all(self):
+        """Return all user data as a dict of lists (JSON-serialisable)."""
+        with self.get_connection() as conn:
+            def rows(q): return [dict(r) for r in conn.execute(q).fetchall()]
+            return {
+                'exported_at': datetime.now().isoformat(),
+                'tasks':    rows('SELECT * FROM tasks'),
+                'projects': rows('SELECT * FROM projects'),
+                'work_sessions': rows('SELECT * FROM work_sessions'),
+                'targets':  rows('SELECT * FROM targets'),
+                'courses':  rows('SELECT * FROM courses'),
+                'profile':  rows('SELECT * FROM user_profile'),
+                'skills':   rows('SELECT * FROM user_skills'),
+                'habits':   rows('SELECT * FROM habits'),
+                'habit_logs': rows('SELECT * FROM habit_logs'),
+                'notes':    rows('SELECT * FROM notes'),
+            }
+
+    # ── HABITS ───────────────────────────────────────────────────────────────
+
+    def add_habit(self, name, color='#7c3aed', icon='\u2713'):
+        with self.get_connection() as conn:
+            conn.execute('INSERT INTO habits (name, color, icon) VALUES (?, ?, ?)', (name, color, icon))
+            conn.commit()
+
+    def get_habits(self):
+        today_str = date.today().isoformat()
+        with self.get_connection() as conn:
+            habits = conn.execute('''
+                SELECT h.*,
+                       CASE WHEN hl.id IS NOT NULL THEN 1 ELSE 0 END as done_today
+                FROM habits h
+                LEFT JOIN habit_logs hl ON hl.habit_id = h.id AND hl.date = ?
+                ORDER BY h.created_at
+            ''', (today_str,)).fetchall()
+            result = []
+            for h in habits:
+                h_dict = dict(h)
+                logs = conn.execute(
+                    'SELECT date FROM habit_logs WHERE habit_id = ? ORDER BY date DESC', (h['id'],)
+                ).fetchall()
+                dates = {r['date'] for r in logs}
+                streak = 0
+                check = date.today()
+                while check.isoformat() in dates:
+                    streak += 1
+                    check = check - timedelta(days=1)
+                h_dict['streak'] = streak
+                result.append(h_dict)
+            return result
+
+    def toggle_habit(self, habit_id):
+        today_str = date.today().isoformat()
+        with self.get_connection() as conn:
+            existing = conn.execute(
+                'SELECT id FROM habit_logs WHERE habit_id = ? AND date = ?', (habit_id, today_str)
+            ).fetchone()
+            if existing:
+                conn.execute('DELETE FROM habit_logs WHERE habit_id = ? AND date = ?', (habit_id, today_str))
+            else:
+                conn.execute('INSERT OR IGNORE INTO habit_logs (habit_id, date) VALUES (?, ?)', (habit_id, today_str))
+            conn.commit()
+            return existing is None  # True = now checked
+
+    def delete_habit(self, habit_id):
+        with self.get_connection() as conn:
+            conn.execute('DELETE FROM habits WHERE id = ?', (habit_id,))
+            conn.commit()
+
+    # ── NOTES ──────────────────────────────────────────────────────────────
+
+    def add_note(self, title='', content='', note_date=None, project_id=None):
+        d = note_date or date.today().isoformat()
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                'INSERT INTO notes (title, content, note_date, project_id) VALUES (?, ?, ?, ?)',
+                (title, content, d, project_id)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def get_notes(self, note_date=None, project_id=None):
+        with self.get_connection() as conn:
+            q = ('SELECT n.*, p.name as project_name '
+                 'FROM notes n LEFT JOIN projects p ON n.project_id = p.id')
+            params, conds = [], []
+            if note_date:
+                conds.append('n.note_date = ?'); params.append(note_date)
+            if project_id:
+                conds.append('n.project_id = ?'); params.append(project_id)
+            if conds:
+                q += ' WHERE ' + ' AND '.join(conds)
+            q += ' ORDER BY n.updated_at DESC'
+            return conn.execute(q, params).fetchall()
+
+    def update_note(self, note_id, **kwargs):
+        allowed = {'title', 'content', 'note_date', 'project_id'}
+        updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+        updates['updated_at'] = datetime.now().isoformat()
+        set_clause = ', '.join(f'{k} = ?' for k in updates)
+        with self.get_connection() as conn:
+            conn.execute(f'UPDATE notes SET {set_clause} WHERE id = ?', list(updates.values()) + [note_id])
+            conn.commit()
+
+    def delete_note(self, note_id):
+        with self.get_connection() as conn:
+            conn.execute('DELETE FROM notes WHERE id = ?', (note_id,))
+            conn.commit()
+
+    # ── PLANNER ────────────────────────────────────────────────────────────
+
+    def get_today_planner(self):
+        today_str = date.today().isoformat()
+        with self.get_connection() as conn:
+            tasks = conn.execute('''
+                SELECT t.*, p.name as project_name
+                FROM tasks t LEFT JOIN projects p ON t.project_id = p.id
+                WHERE t.due_date <= ? AND t.status != 'Done'
+                  AND (t.archived IS NULL OR t.archived = 0)
+                ORDER BY t.due_date, CASE t.priority WHEN 'Urgent' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END
+            ''', (today_str,)).fetchall()
+            sessions = conn.execute(
+                'SELECT ws.*, p.name as project_name FROM work_sessions ws '
+                'LEFT JOIN projects p ON ws.project_id = p.id '
+                'WHERE ws.date = ? ORDER BY ws.start_time',
+                (today_str,)
+            ).fetchall()
+            habits = conn.execute('''
+                SELECT h.*, CASE WHEN hl.id IS NOT NULL THEN 1 ELSE 0 END as done_today
+                FROM habits h LEFT JOIN habit_logs hl ON hl.habit_id = h.id AND hl.date = ?
+                ORDER BY h.created_at
+            ''', (today_str,)).fetchall()
+            return {
+                'date': today_str,
+                'tasks':    [dict(r) for r in tasks],
+                'sessions': [dict(r) for r in sessions],
+                'habits':   [dict(r) for r in habits],
+            }
 
     def add_career_suggestion(self, resume_id, suggestion_type, content):
         with self.get_connection() as conn:

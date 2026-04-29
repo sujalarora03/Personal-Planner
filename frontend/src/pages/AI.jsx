@@ -6,11 +6,11 @@ import toast from 'react-hot-toast'
 
 const QUICK = [
   { label:'Analyze My Week',   prompt:'Analyse my work hours and tasks for this week. What went well and what slipped?' },
-  { label:'Suggest Tasks',     prompt:'Based on my profile and current tasks, use add_task to add 5 actionable tasks for me now.' },
+  { label:'Suggest Tasks',     prompt:'Based on my profile and current tasks, suggest 5 actionable tasks I should work on. List each with a clear title, recommended priority, and reason it matters. Then ask me which ones I want you to add to my planner.' },
   { label:'Review Year Goals', prompt:'Review my year targets. For ones that are behind, advise what actions to take.' },
   { label:'Plan My Day',       prompt:'Query my tasks and work hours, then create a practical schedule for today.' },
   { label:'Prioritize Tasks',  prompt:'Use query_data to check my tasks, then give me a prioritised list for the next 3 days.' },
-  { label:'Recommend Courses', prompt:'Based on my profile and skills, use add_course to add 5 highly relevant courses for me immediately.' },
+  { label:'Recommend Courses', prompt:'Based on my profile and skills, recommend 5 highly relevant courses I should take. For each, include the title, provider, category, and why it fits my background. Then ask me which ones I want you to add to my planner.' },
   { label:'Career Advice',     prompt:'Based on my profile, skills and experience, what should I focus on in the next 6 months to grow my career?' },
   { label:'Fix Overdue',       prompt:'Use query_data to find my overdue tasks, then suggest a concrete plan for each one.' },
 ]
@@ -273,9 +273,11 @@ export default function AI() {
 
           {/* Input */}
           <div className="glass" style={{ margin:'0 0 24px', padding:'12px 14px', borderRadius:14 }}>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, color:'rgba(255,255,255,0.4)', marginBottom:8 }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, color:'rgba(255,255,255,0.4)', marginBottom:8, cursor:'pointer' }}
+              title="When enabled, your tasks, projects, goals, work hours, and profile are sent to the AI as context so it can give personalised answers. Disable for generic questions.">
               <input type="checkbox" checked={ctx} onChange={e => setCtx(e.target.checked)} />
-              Include planner context (profile, tasks, courses, goals)
+              Send my planner data as context
+              <span style={{ fontSize:10, color:'rgba(255,255,255,0.25)', marginLeft:2 }}>(tasks, goals, hours, profile)</span>
             </label>
             <div style={{ display:'flex', gap:10 }}>
               <input value={input} onChange={e => setInput(e.target.value)}

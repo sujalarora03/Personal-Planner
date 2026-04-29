@@ -37,7 +37,6 @@ SetupIconFile=icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-WizardSmallImageFile=icon.ico
 
 ; Show a "What's New" link after install
 InfoAfterFile=
