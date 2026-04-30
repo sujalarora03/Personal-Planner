@@ -31,19 +31,19 @@ jobs:
 
       # ── 4. Install Python dependencies + PyInstaller ────────────────
       - name: Install Python dependencies
-        working-directory: PersonalPlanner
+        working-directory: .
         run: pip install -r requirements.txt pyinstaller --quiet --upgrade
 
       # ── 5. Build React frontend ─────────────────────────────────────
       - name: Build React frontend
-        working-directory: PersonalPlanner/frontend
+        working-directory: frontend
         run: |
           npm install --prefer-offline --no-audit --no-fund
           npm run build
 
       # ── 6. Download Ollama installer ────────────────────────────────
       - name: Download Ollama installer
-        working-directory: PersonalPlanner
+        working-directory: .
         shell: pwsh
         run: |
           $ProgressPreference = 'SilentlyContinue'
@@ -59,7 +59,7 @@ jobs:
 
       # ── 7. Bundle with PyInstaller ──────────────────────────────────
       - name: PyInstaller bundle
-        working-directory: PersonalPlanner
+        working-directory: .
         run: python -m PyInstaller PersonalPlanner.spec --noconfirm --clean
 
       # ── 8. Install Inno Setup 6 ─────────────────────────────────────
@@ -75,7 +75,7 @@ jobs:
 
       # ── 9. Compile Inno Setup installer ─────────────────────────────
       - name: Compile installer
-        working-directory: PersonalPlanner
+        working-directory: .
         shell: cmd
         run: |
           if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" (
@@ -115,4 +115,4 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            PersonalPlanner/Output/PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe
+            Output/PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe
