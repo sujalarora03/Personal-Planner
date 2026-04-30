@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define AppName      "Personal Planner"
-#define AppVersion   "0.7.2"
+#define AppVersion   "0.7.3"
 #define AppPublisher "Sujal Arora"
 #define AppURL       "https://github.com/sujalarora03/Personal-Planner"
 #define AppExeName   "PersonalPlanner.exe"
@@ -115,7 +115,7 @@ Root: HKCU; \
 [Run]
 ; Install Ollama silently (only if task selected)
 Filename: "{tmp}\OllamaSetup.exe"; \
-  Parameters: "/S"; \
+  Parameters: "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
   Description: "Installing Ollama AI engine..."; \
   StatusMsg: "Installing Ollama AI engine (this takes ~30 seconds)..."; \
   Tasks: install_ollama; \
@@ -157,12 +157,13 @@ begin
 
   ScriptPath := ExpandConstant('{app}\setup_models.ps1');
 
-  // -ExecutionPolicy Bypass + -File handles spaces in path and respects param()
-  // Model list passed as -ModelList argument so param() block works correctly.
-  PSArgs := '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" -ModelList "' + Models + '"';
+  // Wrap in cmd /C start to open a new console window that stays open.
+  // Add a 15-second initial delay so Ollama's service has time to fully start.
+  PSArgs := '/C start "Personal Planner — AI Setup" powershell.exe -NoProfile -ExecutionPolicy Bypass'
+          + ' -File "' + ScriptPath + '" -ModelList "' + Models + '"';
 
   // Launch with ewNoWait — installer closes immediately, download runs in
   // a separate visible console window. Model downloads can take 30+ minutes
   // and should not block or appear to freeze the installer.
-  Exec('powershell.exe', PSArgs, '', SW_SHOW, ewNoWait, ResultCode);
+  Exec('cmd.exe', PSArgs, '', SW_SHOW, ewNoWait, ResultCode);
 end;

@@ -695,12 +695,34 @@ def mood_suggest(body: MoodRequest):
         )
         resp.raise_for_status()
         content = resp.json().get("message", {}).get("content", "").strip()
-        # Strip markdown fences if present
+
+        # Strip markdown fences and any leading/trailing prose
         content = _re3.sub(r"```[a-z]*\n?", "", content).strip("`").strip()
-        songs   = _j.loads(content)
-        if isinstance(songs, list):
-            return {"songs": [{"artist": s.get("artist",""), "title": s.get("title","")} for s in songs[:8]]}
-        return {"songs": [], "error": "Unexpected format from model"}
+        # Extract just the JSON array in case the model added preamble/postamble
+        match = _re3.search(r"\[.*\]", content, _re3.DOTALL)
+        if match:
+            content = match.group(0)
+
+        songs = _j.loads(content)
+        if not isinstance(songs, list):
+            return {"songs": [], "error": "Unexpected format from model"}
+
+        result = []
+        for s in songs[:8]:
+            if isinstance(s, dict):
+                artist = s.get("artist") or s.get("Artist") or s.get("artist_name") or ""
+                title  = s.get("title")  or s.get("Title")  or s.get("song_title")  or s.get("song") or ""
+            elif isinstance(s, str):
+                # Model returned "Artist - Song Title" as a plain string
+                parts  = s.split(" - ", 1)
+                artist = parts[0].strip() if len(parts) == 2 else ""
+                title  = parts[1].strip() if len(parts) == 2 else s.strip()
+            else:
+                continue
+            if title:
+                result.append({"artist": str(artist), "title": str(title)})
+
+        return {"songs": result}
     except _r.exceptions.ConnectionError:
         return {"songs": [], "error": "Ollama not running — start it with: ollama serve"}
     except _j.JSONDecodeError:

@@ -2,7 +2,7 @@
 
 A fully local, offline-first Windows desktop app. Manage tasks, track work hours, run personal projects, set year targets, log courses, build daily habits, and analyse your resume — all powered by a local AI assistant via Ollama.
 
-> **100% Private · v0.7.2 BETA** — All your data stays on this machine. Nothing is ever sent online. The AI assistant runs locally via Ollama.
+> **100% Private · v0.7.3 BETA** — All your data stays on this machine. Nothing is ever sent online. The AI assistant runs locally via Ollama.
 
 ---
 

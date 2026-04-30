@@ -8,6 +8,11 @@ param(
 
 if (-not $ModelList) { $ModelList = "llama3.2" }
 
+# ── Wait for Ollama's service to fully start after fresh install ─────────────
+# Ollama auto-starts after install but needs ~10 seconds to be API-ready.
+Write-Host "  Waiting for Ollama service to start..." -ForegroundColor DarkGray
+Start-Sleep -Seconds 12
+
 # ── Refresh PATH from registry so freshly-installed Ollama is visible ──────
 # The spawned process inherits the old PATH (before Ollama added itself).
 try {
@@ -90,15 +95,18 @@ if (-not $ollamaCmd) {
     exit 1
 }
 
-# ── Start Ollama serve if not already running ─────────────────────
+# ── Start Ollama serve only if API is not already responding ─────────────
+# After fresh install, Ollama runs as a service/tray app automatically.
+# Calling 'ollama serve' when it's already running causes a port conflict.
 $running = $false
 try {
     Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -UseBasicParsing | Out-Null
     $running = $true
-    Write-Host "  [OK] Ollama is already running." -ForegroundColor Green
+    Write-Host "  [OK] Ollama is running." -ForegroundColor Green
 } catch {
-    Write-Host "  Starting Ollama service..." -ForegroundColor Yellow
-    Start-Process $ollamaCmd -ArgumentList "serve" -WindowStyle Hidden
+    Write-Host "  Ollama API not responding yet, waiting..." -ForegroundColor Yellow
+    # Try starting serve only if truly not running
+    try { Start-Process $ollamaCmd -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue } catch {}
     $running = Wait-Ollama
 }
 
