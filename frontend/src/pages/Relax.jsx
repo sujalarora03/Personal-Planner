@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Sparkles, Music, RefreshCw, PlayCircle, X, Volume2, VolumeX } from 'lucide-react'
+import { Play, Pause, Sparkles, Music, RefreshCw, X, Volume2, VolumeX } from 'lucide-react'
 
 const MOODS = [
   { emoji: '🎯', label: 'Focused',     value: 'deeply focused and in a flow state, need concentration music' },
@@ -29,7 +29,7 @@ const fmtTime = (s) => {
 // Determine the best playback mode for a song
 const songMode = (song) => {
   if (!song) return null
-  if (song.yt_found && song.video_id) return 'youtube'
+  if (song.yt_found && song.audio_url) return 'youtube'
   if (song.itunes_found && song.preview_url) return 'itunes'
   return null
 }
@@ -55,7 +55,6 @@ export default function Relax() {
   const [volume, setVolume]           = useState(1)
 
   const audioRef     = useRef(null)
-  const ytIframeRef  = useRef(null)
   const songsRef     = useRef([])
   const idxRef       = useRef(null)
   const startPlayRef = useRef(null)
@@ -75,12 +74,12 @@ export default function Relax() {
     audio.addEventListener('ended', () => {
       setIsPlaying(false)
       setCurrentTime(0)
-      // Auto-advance to next iTunes track
+      // Auto-advance to next playable track
       const curr = idxRef.current
       const list = songsRef.current
       if (curr !== null) {
         for (let i = curr + 1; i < list.length; i++) {
-          if (songMode(list[i]) === 'itunes') { startPlayRef.current?.(i); return }
+          if (songMode(list[i])) { startPlayRef.current?.(i); return }
         }
       }
       setPlayingIdx(null)
@@ -91,9 +90,11 @@ export default function Relax() {
   const startPlay = (idx) => {
     const audio = audioRef.current
     const song  = songsRef.current[idx]
-    if (!audio || !song?.preview_url) return
+    const mode  = songMode(song)
+    const url   = mode === 'youtube' ? song.audio_url : song?.preview_url
+    if (!audio || !url) return
     audio.pause()
-    audio.src = song.preview_url
+    audio.src = url
     audio.load()
     audio.play().catch(() => {})
     setPlayingIdx(idx)
@@ -106,26 +107,12 @@ export default function Relax() {
     if (!song) return
     const mode = songMode(song)
     if (!mode) return
-
-    if (mode === 'youtube') {
-      if (playingIdx === idx) {
-        // Clicking the active YouTube track closes the player
-        setPlayingIdx(null)
-      } else {
-        // Stop any iTunes audio and switch to YouTube
-        if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
-        setIsPlaying(false)
-        setPlayingIdx(idx)
-      }
+    const audio = audioRef.current
+    if (!audio) return
+    if (playingIdx === idx) {
+      isPlaying ? audio.pause() : audio.play().catch(() => {})
     } else {
-      // iTunes mode — toggle play/pause or start new track
-      const audio = audioRef.current
-      if (!audio) return
-      if (playingIdx === idx) {
-        isPlaying ? audio.pause() : audio.play().catch(() => {})
-      } else {
-        startPlay(idx)
-      }
+      startPlay(idx)
     }
   }
 
@@ -175,10 +162,13 @@ export default function Relax() {
             const n = [...prev]
             if (n[i]) n[i] = {
               ...n[i],
-              // YouTube
-              video_id:  ytRes.found ? ytRes.video_id  : null,
-              channel:   ytRes.found ? ytRes.channel   : '',
-              yt_found:  !!ytRes.found,
+              // YouTube (audio stream via yt-dlp)
+              video_id:    ytRes.found ? ytRes.video_id  : null,
+              audio_url:   ytRes.found ? ytRes.audio_url : null,
+              channel:     ytRes.found ? ytRes.channel   : '',
+              yt_found:    !!ytRes.found && !!ytRes.audio_url,
+              watch_url:   ytRes.watch_url || null,
+              yt_duration: ytRes.duration  || null,
               // iTunes
               preview_url:  itunesRes.found ? itunesRes.preview_url  : null,
               artwork_url:  itunesRes.found ? itunesRes.artwork_url  : null,
@@ -378,10 +368,17 @@ export default function Relax() {
                               {song.loading ? (
                                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Loading…</span>
                               ) : song.yt_found ? (
-                                <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(239,68,68,0.15)',
-                                  color: '#f87171', borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(239,68,68,0.25)' }}>
-                                  ▶ Full Song
-                                </span>
+                                <>
+                                  <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(239,68,68,0.15)',
+                                    color: '#f87171', borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(239,68,68,0.25)' }}>
+                                    ▶ YouTube
+                                  </span>
+                                  {song.yt_duration && (
+                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>
+                                      {fmtTime(song.yt_duration)}
+                                    </span>
+                                  )}
+                                </>
                               ) : song.itunes_found ? (
                                 <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(251,146,60,0.12)',
                                   color: '#fb923c', borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(251,146,60,0.2)' }}>
@@ -411,13 +408,9 @@ export default function Relax() {
                                 alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
                                 boxShadow: active ? '0 0 18px rgba(124,58,237,0.5)' : 'none',
                               }}>
-                                {active && mode === 'youtube'
-                                  ? <X size={14} />
-                                  : active && isPlaying
-                                    ? <Pause size={14} />
-                                    : mode === 'youtube'
-                                      ? <PlayCircle size={14} />
-                                      : <Play size={14} style={{ marginLeft: 2 }} />
+                                {active && isPlaying
+                                  ? <Pause size={14} />
+                                  : <Play size={14} style={{ marginLeft: 2 }} />
                                 }
                               </button>
                             ) : (
@@ -451,86 +444,36 @@ export default function Relax() {
       <AnimatePresence>
         {activeSong && (
           <motion.div
-            key={activeMode}
-            initial={{ y: 250 }} animate={{ y: 0 }} exit={{ y: 250 }}
+            key={playingIdx}
+            initial={{ y: 80 }} animate={{ y: 0 }} exit={{ y: 80 }}
             style={{
               position: 'fixed', bottom: 0, left: 220, right: 0, zIndex: 30,
               background: 'rgba(6,6,18,0.98)', backdropFilter: 'blur(20px)',
               borderTop: '1px solid rgba(255,255,255,0.09)',
-              height: activeMode === 'youtube' ? 210 : 68,
-              display: 'flex',
+              height: 68, display: 'flex',
             }}>
-
-            {activeMode === 'youtube' ? (
-              /* ── YouTube player bar ── */
-              <>
-                {/* Left: song info */}
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                  padding: '12px 20px', width: 260, flexShrink: 0, gap: 6, borderRight: '1px solid rgba(255,255,255,0.07)' }}>
-                  {activeSong.thumbnail && (
-                    <img src={activeSong.thumbnail} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }} />
-                  )}
-                  <div style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.3,
-                    overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+            <>
+              {activeSong.thumbnail
+                ? <img src={activeSong.thumbnail} alt=""
+                    style={{ width: 68, height: 68, objectFit: 'cover', flexShrink: 0 }} />
+                : <div style={{ width: 68, height: 68, background: 'rgba(124,58,237,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Music size={18} color="white" />
+                  </div>
+              }
+              <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 14, padding: '0 20px' }}>
+                <div style={{ minWidth: 0, flex: '0 0 175px' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {activeSong.track_name || activeSong.title}
                   </div>
                   <div style={{ fontSize: 11, color: '#a78bfa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {activeSong.artist_name || activeSong.artist}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                    <PlayCircle size={11} color="#f87171" />
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>Full Song · YouTube</span>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
+                    {activeMode === 'youtube' ? '▶ YouTube Audio' : '◑ 30s iTunes Preview'}
                   </div>
-                  <button onClick={() => setPlayingIdx(null)} style={{
-                    marginTop: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)',
-                    background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)',
-                    fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, width: 'fit-content',
-                  }}>
-                    <X size={10} /> Close
-                  </button>
                 </div>
-                {/* Right: YouTube iframe */}
-                <iframe
-                  key={activeSong.video_id}
-                  ref={ytIframeRef}
-                  src={`https://www.youtube.com/embed/${activeSong.video_id}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1`}
-                  style={{ flex: 1, height: '100%', border: 'none' }}
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                  allowFullScreen
-                  onLoad={() => {
-                    // WebView2 loses the user-gesture context by render time;
-                    // postMessage forces playback via the IFrame Player API.
-                    setTimeout(() => {
-                      ytIframeRef.current?.contentWindow?.postMessage(
-                        JSON.stringify({ event: 'command', func: 'playVideo', args: [] }),
-                        'https://www.youtube.com'
-                      )
-                    }, 800)
-                  }}
-                />
-              </>
-            ) : (
-              /* ── iTunes audio mini-player ── */
-              <>
-                {activeSong.thumbnail
-                  ? <img src={activeSong.thumbnail} alt=""
-                      style={{ width: 68, height: 68, objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ width: 68, height: 68, background: 'rgba(124,58,237,0.3)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Music size={18} color="white" />
-                    </div>
-                }
-                <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 14, padding: '0 20px' }}>
-                  <div style={{ minWidth: 0, flex: '0 0 175px' }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {activeSong.track_name || activeSong.title}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#a78bfa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {activeSong.artist_name || activeSong.artist}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>30s · iTunes Preview</div>
-                  </div>
-                  <button onClick={() => handlePlayPause(playingIdx)} style={{
+                <button onClick={() => handlePlayPause(playingIdx)} style={{
                     width: 34, height: 34, borderRadius: '50%', border: 'none',
                     background: '#7c3aed', color: 'white', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -571,7 +514,6 @@ export default function Relax() {
                   </button>
                 </div>
               </>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

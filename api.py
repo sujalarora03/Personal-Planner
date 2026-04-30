@@ -8,6 +8,7 @@ import sys
 import threading
 import json
 import random
+import webbrowser
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -687,38 +688,77 @@ def music_preview(artist: str = "", title: str = ""):
 
 @app.get("/api/music/youtube")
 def youtube_search(artist: str = "", title: str = ""):
-    """Search YouTube Data API v3 for a full song video and return its video ID."""
-    # Prefer key from DB profile over environment variable
-    profile = db.get_profile()
-    key = (profile or {}).get("youtube_api_key", "").strip() or os.environ.get("YOUTUBE_API_KEY", "")
-    if not key:
-        return {"found": False, "error": "No YouTube API key configured. Add it in Profile → API Keys."}
-    q = f"{artist} {title} official audio"
+    """Use yt-dlp to find a YouTube song and extract a direct audio stream URL.
+    No API key needed. No embedding — audio plays directly in the browser.
+    """
     try:
-        import requests as _r
-        resp = _r.get(
-            "https://www.googleapis.com/youtube/v3/search",
-            params={
-                "key": key, "q": q, "part": "snippet",
-                "type": "video", "maxResults": 3,
-                "videoCategoryId": "10",   # Music category
-            },
-            timeout=8,
-        )
-        data  = resp.json()
-        items = data.get("items", [])
-        if not items:
-            return {"found": False}
-        item = items[0]
-        return {
-            "found":     True,
-            "video_id":  item["id"]["videoId"],
-            "yt_title":  item["snippet"]["title"],
-            "channel":   item["snippet"]["channelTitle"],
-            "thumbnail": item["snippet"]["thumbnails"].get("medium", {}).get("url", ""),
-        }
+        import yt_dlp
+    except ImportError:
+        return {"found": False, "error": "yt-dlp not installed. Run: pip install yt-dlp"}
+
+    query = f"{artist} {title} official audio"
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "extract_flat": False,
+        "default_search": "ytsearch1",   # search YouTube, pick top result
+        "skip_download": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+            if not info:
+                return {"found": False}
+            # ytsearch wraps result in a playlist-like dict
+            entry = info.get("entries", [info])[0] if "entries" in info else info
+            if not entry:
+                return {"found": False}
+
+            # Pick the best audio-only format URL
+            audio_url = None
+            for fmt in sorted(entry.get("formats", []), key=lambda f: f.get("abr") or 0, reverse=True):
+                if fmt.get("acodec") != "none" and fmt.get("vcodec") in ("none", None, ""):
+                    audio_url = fmt.get("url")
+                    break
+            if not audio_url:
+                # fallback: use the direct url of the entry
+                audio_url = entry.get("url")
+            if not audio_url:
+                return {"found": False}
+
+            vid = entry.get("id", "")
+            thumbnail = entry.get("thumbnail", "")
+            # prefer medium thumbnail
+            thumbs = entry.get("thumbnails", [])
+            if thumbs:
+                # pick one around 320px wide
+                sized = [t for t in thumbs if (t.get("width") or 0) >= 300]
+                thumbnail = (sized[0] if sized else thumbs[-1]).get("url", thumbnail)
+
+            return {
+                "found":      True,
+                "video_id":   vid,
+                "audio_url":  audio_url,
+                "yt_title":   entry.get("title", ""),
+                "channel":    entry.get("uploader", ""),
+                "thumbnail":  thumbnail,
+                "watch_url":  f"https://www.youtube.com/watch?v={vid}",
+                "duration":   entry.get("duration"),
+            }
     except Exception as e:
         return {"found": False, "error": str(e)}
+
+
+@app.get("/api/open-url")
+def open_external_url(url: str):
+    """Open a URL in the system default browser (used from PyWebView context)."""
+    allowed = ("https://www.youtube.com/", "https://music.apple.com/")
+    if not any(url.startswith(a) for a in allowed):
+        raise HTTPException(status_code=400, detail="URL not allowed")
+    webbrowser.open(url)
+    return {"ok": True}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
