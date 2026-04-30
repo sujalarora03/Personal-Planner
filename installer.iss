@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define AppName      "Personal Planner"
-#define AppVersion   "0.7.0"
+#define AppVersion   "0.7.1"
 #define AppPublisher "Sujal Arora"
 #define AppURL       "https://github.com/sujalarora03/Personal-Planner"
 #define AppExeName   "PersonalPlanner.exe"
