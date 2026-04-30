@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
   GitBranch, RefreshCw, CheckCircle2, AlertCircle,
@@ -15,8 +15,14 @@ function openUrl(url) {
 }
 
 export default function Settings() {
-  const [checking, setChecking]       = useState(false)
+  const [checking, setChecking]         = useState(false)
   const [updateResult, setUpdateResult] = useState(null) // null | { available, latest, current } | 'error'
+  const [installing, setInstalling]     = useState(false)
+
+  // Auto-check when the user opens this tab
+  useEffect(() => {
+    checkForUpdate()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkForUpdate = async () => {
     setChecking(true)
@@ -28,6 +34,34 @@ export default function Settings() {
       setUpdateResult('error')
     } finally {
       setChecking(false)
+    }
+  }
+
+  const startInstall = async () => {
+    if (!updateResult || !updateResult.available) return
+    setInstalling(true)
+    try {
+      // Trigger download then install via the existing updater endpoints
+      await fetch('/api/update/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ installer_url: updateResult.installer_url, version: updateResult.latest }),
+      })
+      // Poll until ready then install
+      const poll = setInterval(async () => {
+        const state = await fetch('/api/update/progress').then(r => r.json())
+        if (state.status === 'ready') {
+          clearInterval(poll)
+          await fetch('/api/update/install', { method: 'POST' })
+        } else if (state.status === 'error') {
+          clearInterval(poll)
+          setInstalling(false)
+          openUrl(RELEASES_URL)
+        }
+      }, 1000)
+    } catch {
+      setInstalling(false)
+      openUrl(RELEASES_URL)
     }
   }
 
@@ -203,7 +237,7 @@ export default function Settings() {
               </div>
               {!updateResult && !checking && (
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
-                  Click the button to check for a newer version on GitHub.
+                  Checking for updates…
                 </div>
               )}
 
@@ -217,18 +251,31 @@ export default function Settings() {
               {hasUpdate && (
                 <div style={{ marginTop: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6,
-                    color: '#fbbf24', fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                    color: '#fbbf24', fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
                     <Info size={15} />
-                    Update available — v{updateResult.latest}
+                    v{updateResult.latest} is available — you have v{updateResult.current}
                   </div>
-                  <button
-                    onClick={() => openUrl(RELEASES_URL)}
-                    className="btn btn-ghost btn-sm">
-                    <ExternalLink size={11} /> Download from GitHub
-                  </button>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 6 }}>
-                    Or restart the app — the update banner at the top will guide you through automatic install.
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={startInstall}
+                      disabled={installing}
+                      className="btn btn-purple btn-sm"
+                      style={{ background: 'rgba(16,185,129,0.25)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>
+                      {installing
+                        ? <><RefreshCw size={11} style={{ animation: 'spin 0.8s linear infinite' }} /> Downloading &amp; Installing…</>
+                        : <>⬇ Download &amp; Install Now</>}
+                    </button>
+                    <button
+                      onClick={() => openUrl(RELEASES_URL)}
+                      className="btn btn-ghost btn-sm">
+                      <ExternalLink size={11} /> View on GitHub
+                    </button>
                   </div>
+                  {!installing && (
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 8 }}>
+                      The app will close and reinstall silently, then reopen.
+                    </div>
+                  )}
                 </div>
               )}
               {isError && (
