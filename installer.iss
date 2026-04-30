@@ -157,11 +157,9 @@ begin
 
   ScriptPath := ExpandConstant('{app}\setup_models.ps1');
 
-  // Use -Command + Invoke-Expression to bypass execution policy
-  // (Group Policy blocks -File but not inline evaluated strings).
-  // Model list is passed via env var since -File params aren't available here.
-  PSArgs := '-NoProfile -Command "$env:PP_MODELS = ''' + Models + '''; ' +
-            'Invoke-Expression (Get-Content -Raw ''' + ScriptPath + ''')"';
+  // -ExecutionPolicy Bypass + -File handles spaces in path and respects param()
+  // Model list passed as -ModelList argument so param() block works correctly.
+  PSArgs := '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" -ModelList "' + Models + '"';
 
   // Launch with ewNoWait — installer closes immediately, download runs in
   // a separate visible console window. Model downloads can take 30+ minutes

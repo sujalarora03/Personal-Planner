@@ -6,9 +6,15 @@ param(
     [string]$ModelList = ""
 )
 
-# Fall back to env var when launched via Invoke-Expression (execution policy bypass)
-if (-not $ModelList) { $ModelList = $env:PP_MODELS }
 if (-not $ModelList) { $ModelList = "llama3.2" }
+
+# ── Refresh PATH from registry so freshly-installed Ollama is visible ──────
+# The spawned process inherits the old PATH (before Ollama added itself).
+try {
+    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    $env:PATH    = ($machinePath, $userPath | Where-Object { $_ }) -join ';'
+} catch {}
 
 $Host.UI.RawUI.WindowTitle = "Personal Planner — AI Model Setup"
 
@@ -22,7 +28,7 @@ function Write-Header {
 
 function Wait-Ollama {
     Write-Host "  Waiting for Ollama to start..." -ForegroundColor Yellow
-    $timeout = 40
+    $timeout = 90
     $elapsed = 0
     while ($elapsed -lt $timeout) {
         Start-Sleep -Seconds 2
@@ -39,16 +45,34 @@ function Wait-Ollama {
 
 Write-Header
 
-# ── Check ollama in PATH ──────────────────────────────────────────
-$ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
-if (-not $ollamaCmd) {
-    # Try common install location
-    $commonPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
-    if (Test-Path $commonPath) {
-        $env:PATH += ";$env:LOCALAPPDATA\Programs\Ollama"
-        $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+# ── Locate ollama.exe (check PATH + all known install locations) ───────────
+$ollamaExe = $null
+
+# 1. Try PATH first
+$found = Get-Command ollama -ErrorAction SilentlyContinue
+if ($found) { $ollamaExe = $found.Source }
+
+# 2. Check all known install locations
+if (-not $ollamaExe) {
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
+        "$env:LOCALAPPDATA\Ollama\ollama.exe",
+        "$env:ProgramFiles\Ollama\ollama.exe",
+        "${env:ProgramFiles(x86)}\Ollama\ollama.exe",
+        "$env:USERPROFILE\AppData\Local\Programs\Ollama\ollama.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $ollamaExe = $c; break }
     }
 }
+
+# 3. Last resort — search user AppData tree (slower)
+if (-not $ollamaExe) {
+    $hit = Get-ChildItem -Path $env:LOCALAPPDATA -Filter 'ollama.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) { $ollamaExe = $hit.FullName }
+}
+
+$ollamaCmd = $ollamaExe   # use full path for all subsequent calls
 if (-not $ollamaCmd) {
     Write-Host "  [ERROR] Ollama executable not found." -ForegroundColor Red
     Write-Host "  Ollama may need a full system restart to appear in PATH." -ForegroundColor Yellow
@@ -58,6 +82,8 @@ if (-not $ollamaCmd) {
         $m = $m.Trim()
         if ($m) { Write-Host "    ollama pull $m" -ForegroundColor White }
     }
+    Write-Host ""
+    Write-Host "  Or open Personal Planner and use the AI tab setup button." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  Press any key to close..."
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -72,7 +98,7 @@ try {
     Write-Host "  [OK] Ollama is already running." -ForegroundColor Green
 } catch {
     Write-Host "  Starting Ollama service..." -ForegroundColor Yellow
-    Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+    Start-Process $ollamaCmd -ArgumentList "serve" -WindowStyle Hidden
     $running = Wait-Ollama
 }
 
@@ -114,7 +140,7 @@ foreach ($model in $models) {
     Write-Host "       Size: $sz  (progress shown below)" -ForegroundColor DarkGray
     Write-Host ""
 
-    & ollama pull $model
+    & $ollamaCmd pull $model
 
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
