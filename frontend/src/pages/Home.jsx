@@ -76,7 +76,7 @@ export default function Home() {
             background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)',
             color: '#a78bfa', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 700,
             whiteSpace: 'nowrap', marginTop: 8,
-          }}>v0.5 BETA</span>
+          }}>v0.7.5 BETA</span>
         </motion.div>
 
         <motion.p variants={item} style={{ fontSize: 18, color: '#a78bfa', marginBottom: 40 }}>
