@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
@@ -209,9 +209,12 @@ function FirstRunModal({ onClose }) {
 }
 
 function AppShell() {
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [updateInfo, setUpdateInfo]         = useState(null)
+  const [showOnboarding, setShowOnboarding]   = useState(false)
+  const [updateInfo, setUpdateInfo]           = useState(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [dlStatus, setDlStatus]               = useState('idle')  // idle | downloading | ready | error | installing
+  const [dlProgress, setDlProgress]           = useState(0)
+  const pollRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -232,8 +235,42 @@ function AppShell() {
       }).catch(() => {})
     }, 4000)
 
-    return () => { cancelled = true; clearTimeout(timer) }
+    return () => { cancelled = true; clearTimeout(timer); clearInterval(pollRef.current) }
   }, [])
+
+  const startDownload = async () => {
+    if (!updateInfo) return
+    setDlStatus('downloading')
+    setDlProgress(0)
+    try {
+      await fetch('/api/update/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ installer_url: updateInfo.installer_url, version: updateInfo.latest }),
+      })
+      // Poll progress every second
+      pollRef.current = setInterval(async () => {
+        try {
+          const state = await fetch('/api/update/progress').then(r => r.json())
+          setDlProgress(state.progress || 0)
+          if (state.status === 'ready') {
+            clearInterval(pollRef.current)
+            setDlStatus('ready')
+          } else if (state.status === 'error') {
+            clearInterval(pollRef.current)
+            setDlStatus('error')
+          }
+        } catch { clearInterval(pollRef.current); setDlStatus('error') }
+      }, 1000)
+    } catch { setDlStatus('error') }
+  }
+
+  const installUpdate = async () => {
+    setDlStatus('installing')
+    try {
+      await fetch('/api/update/install', { method: 'POST' })
+    } catch { /* app will close */ }
+  }
 
   return (
     <>
@@ -249,28 +286,78 @@ function AppShell() {
               backdropFilter: 'blur(12px)',
               display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px',
               boxShadow: '0 2px 20px rgba(124,58,237,0.4)',
+              flexDirection: 'column',
             }}>
-            <Download size={15} color="white" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'white', flex: 1 }}>
-              ✨ Personal Planner {updateInfo.latest} is available
-              <span style={{ fontWeight: 400, opacity: 0.8, marginLeft: 8 }}>
-                (you have {updateInfo.current})
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+              <Download size={15} color="white" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'white', flex: 1 }}>
+                ✨ Personal Planner {updateInfo.latest} is available
+                <span style={{ fontWeight: 400, opacity: 0.8, marginLeft: 8 }}>
+                  (you have {updateInfo.current})
+                </span>
               </span>
-            </span>
-            <a href={updateInfo.download_url} target="_blank" rel="noreferrer"
-              style={{
-                background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
-                color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
-                fontWeight: 700, textDecoration: 'none', flexShrink: 0,
-              }}>
-              Download Update →
-            </a>
-            <button onClick={() => setUpdateDismissed(true)} style={{
-              background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)',
-              cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0,
-            }}>
-              <X size={15} />
-            </button>
+
+              {dlStatus === 'idle' && (
+                <button onClick={startDownload} style={{
+                  background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
+                  color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
+                  fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                }}>
+                  Download & Install
+                </button>
+              )}
+
+              {dlStatus === 'downloading' && (
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', flexShrink: 0 }}>
+                  Downloading… {dlProgress}%
+                </span>
+              )}
+
+              {dlStatus === 'ready' && (
+                <button onClick={installUpdate} style={{
+                  background: 'rgba(16,185,129,0.4)', border: '1px solid rgba(16,185,129,0.6)',
+                  color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
+                  fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                }}>
+                  ✓ Install & Restart
+                </button>
+              )}
+
+              {dlStatus === 'installing' && (
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', flexShrink: 0 }}>
+                  Installing…
+                </span>
+              )}
+
+              {dlStatus === 'error' && (
+                <a href={updateInfo.download_url} target="_blank" rel="noreferrer" style={{
+                  background: 'rgba(239,68,68,0.3)', border: '1px solid rgba(239,68,68,0.5)',
+                  color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
+                  fontWeight: 700, textDecoration: 'none', flexShrink: 0,
+                }}>
+                  Download Manually ↗
+                </a>
+              )}
+
+              {dlStatus !== 'installing' && (
+                <button onClick={() => setUpdateDismissed(true)} style={{
+                  background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)',
+                  cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0,
+                }}>
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
+            {/* Progress bar */}
+            {dlStatus === 'downloading' && (
+              <div style={{ width: '100%', height: 3, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }}>
+                <div style={{
+                  height: '100%', borderRadius: 2, background: 'white',
+                  width: `${dlProgress}%`, transition: 'width 0.4s ease',
+                }} />
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

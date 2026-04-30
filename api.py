@@ -333,6 +333,59 @@ def check_update():
         return {"available": False, "error": str(e)}
 
 
+@app.post("/api/update/download")
+def start_download(body: dict):
+    """Start downloading the new installer in a background thread."""
+    try:
+        from updater import download_installer, get_download_state
+        state = get_download_state()
+        if state["status"] == "downloading":
+            return {"ok": True, "status": "already_downloading"}
+        if state["status"] == "ready":
+            return {"ok": True, "status": "ready", "path": state["path"]}
+
+        installer_url = body.get("installer_url", "")
+        version       = body.get("version", "")
+        if not installer_url or not version:
+            raise HTTPException(status_code=400, detail="installer_url and version required")
+
+        t = threading.Thread(target=download_installer, args=(installer_url, version), daemon=True)
+        t.start()
+        return {"ok": True, "status": "started"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/update/progress")
+def download_progress():
+    """Poll download progress."""
+    try:
+        from updater import get_download_state
+        return get_download_state()
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/update/install")
+def install_update():
+    """Run the downloaded installer silently and exit this process."""
+    try:
+        from updater import get_download_state, run_installer_and_exit
+        state = get_download_state()
+        if state["status"] != "ready" or not state["path"]:
+            raise HTTPException(status_code=400, detail="Installer not ready yet")
+
+        t = threading.Thread(target=run_installer_and_exit, args=(state["path"],), daemon=True)
+        t.start()
+        return {"ok": True, "message": "Installing update and restarting…"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
