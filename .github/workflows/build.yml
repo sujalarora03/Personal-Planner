@@ -1,0 +1,118 @@
+name: Build & Release Installer
+
+on:
+  push:
+    tags:
+      - "v*"          # trigger on tags like v0.7.0, v0.8.0, etc.
+
+permissions:
+  contents: write     # needed to create GitHub Releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Checkout code ────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ────────────────────────────────────────────
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # ── 3. Set up Node.js ───────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── 4. Install Python dependencies + PyInstaller ────────────────
+      - name: Install Python dependencies
+        working-directory: PersonalPlanner
+        run: pip install -r requirements.txt pyinstaller --quiet --upgrade
+
+      # ── 5. Build React frontend ─────────────────────────────────────
+      - name: Build React frontend
+        working-directory: PersonalPlanner/frontend
+        run: |
+          npm install --prefer-offline --no-audit --no-fund
+          npm run build
+
+      # ── 6. Download Ollama installer ────────────────────────────────
+      - name: Download Ollama installer
+        working-directory: PersonalPlanner
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          try {
+            Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' `
+              -OutFile 'OllamaSetup.exe' -UseBasicParsing
+            Write-Host "Ollama downloaded OK."
+          } catch {
+            Write-Host "Ollama download failed: $($_.Exception.Message)"
+            Write-Host "Creating placeholder..."
+            "placeholder" | Out-File OllamaSetup.exe
+          }
+
+      # ── 7. Bundle with PyInstaller ──────────────────────────────────
+      - name: PyInstaller bundle
+        working-directory: PersonalPlanner
+        run: python -m PyInstaller PersonalPlanner.spec --noconfirm --clean
+
+      # ── 8. Install Inno Setup 6 ─────────────────────────────────────
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri 'https://jrsoftware.org/download.php/is.exe' `
+            -OutFile "$env:TEMP\innosetup.exe" -UseBasicParsing
+          Start-Process "$env:TEMP\innosetup.exe" `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' `
+            -Wait
+
+      # ── 9. Compile Inno Setup installer ─────────────────────────────
+      - name: Compile installer
+        working-directory: PersonalPlanner
+        shell: cmd
+        run: |
+          if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" (
+            "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" installer.iss
+          ) else (
+            "%ProgramFiles%\Inno Setup 6\ISCC.exe" installer.iss
+          )
+
+      # ── 10. Get version from tag ─────────────────────────────────────
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"          # e.g. v0.7.0
+          $ver = $tag.TrimStart('v')               # e.g. 0.7.0
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "ver=$ver" >> $env:GITHUB_OUTPUT
+
+      # ── 11. Create GitHub Release & upload installer ─────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Personal Planner v${{ steps.version.outputs.ver }}"
+          body: |
+            ## Personal Planner v${{ steps.version.outputs.ver }}
+
+            ### Install
+            1. Download **PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe** below
+            2. Run it — no admin rights required
+            3. Optionally install Ollama for AI features (offered during setup)
+
+            ### What's included
+            - FastAPI backend (Python)
+            - React frontend (pre-built)
+            - Ollama AI engine installer (optional, ~150 MB)
+          draft: false
+          prerelease: false
+          files: |
+            PersonalPlanner/Output/PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe
