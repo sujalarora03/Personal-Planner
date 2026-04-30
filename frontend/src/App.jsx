@@ -21,6 +21,7 @@ import Pomodoro   from './pages/Pomodoro'
 import Habits     from './pages/Habits'
 import Notes      from './pages/Notes'
 import Planner    from './pages/Planner'
+import Settings   from './pages/Settings'
 
 const pageVariants = {
   initial: { opacity: 0, x: 12 },
@@ -53,6 +54,7 @@ function AnimatedRoutes() {
           <Route path="/career"     element={<Career />} />
           <Route path="/ai"         element={<AI />} />
           <Route path="/relax"      element={<Relax />} />          <Route path="/focus"       element={<Pomodoro />} />
+          <Route path="/settings"    element={<Settings />} />
           <Route path="/habits"      element={<Habits />} />
           <Route path="/notes"       element={<Notes />} />
           <Route path="/planner"     element={<Planner />} />          <Route path="*"           element={<Navigate to="/" replace />} />

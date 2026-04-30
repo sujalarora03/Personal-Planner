@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import {
   Home, LayoutDashboard, CheckSquare, Clock, Rocket,
   Target, BookOpen, GraduationCap, Bot, User, Headphones,
-  ChevronLeft, ChevronRight, Timer, CheckCircle2, NotebookPen, CalendarDays,
+  ChevronLeft, ChevronRight, Timer, CheckCircle2, NotebookPen, CalendarDays, Settings,
 } from 'lucide-react'
 
 const NAV = [
@@ -23,6 +23,7 @@ const NAV = [
   { to: '/career',     icon: GraduationCap,  label: 'Career' },
   { to: '/ai',         icon: Bot,            label: 'AI Assistant' },
   { to: '/relax',      icon: Headphones,     label: 'Relax' },
+  { to: '/settings',   icon: Settings,       label: 'Settings' },
 ]
 
 const STORAGE_KEY = 'pp_sidebar_collapsed'
@@ -87,7 +88,7 @@ export default function Sidebar() {
                 <span style={{
                   background: 'rgba(124,58,237,0.25)', color: '#a78bfa',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v0.7.4 BETA</span>
+                }}>v0.7.5 BETA</span>
               </div>
             </div>
           )}

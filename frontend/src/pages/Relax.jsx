@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Sparkles, Music, RefreshCw, X, Volume2, VolumeX } from 'lucide-react'
+import { Play, Pause, Sparkles, Music, RefreshCw, X, Volume2, VolumeX, Search } from 'lucide-react'
 
 const MOODS = [
   { emoji: '🎯', label: 'Focused',     value: 'deeply focused and in a flow state, need concentration music' },
@@ -46,6 +46,10 @@ export default function Relax() {
   const [songs, setSongs]           = useState([])
   const [generating, setGenerating] = useState(false)
   const [error, setError]           = useState('')
+
+  // Direct search
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching]     = useState(false)
 
   // Player
   const [playingIdx, setPlayingIdx]   = useState(null)
@@ -166,17 +170,16 @@ export default function Relax() {
               video_id:    ytRes.found ? ytRes.video_id  : null,
               audio_url:   ytRes.found ? ytRes.audio_url : null,
               channel:     ytRes.found ? ytRes.channel   : '',
+              yt_title:    ytRes.found ? ytRes.yt_title  : '',
               yt_found:    !!ytRes.found && !!ytRes.audio_url,
               watch_url:   ytRes.watch_url || null,
               yt_duration: ytRes.duration  || null,
-              // iTunes
+              // iTunes (for album art + 30s fallback only)
               preview_url:  itunesRes.found ? itunesRes.preview_url  : null,
               artwork_url:  itunesRes.found ? itunesRes.artwork_url  : null,
-              track_name:   itunesRes.track_name  || s.title,
-              artist_name:  itunesRes.artist_name || s.artist,
-              genre:        itunesRes.genre       || '',
               itunes_found: !!itunesRes.found,
-              // Prefer iTunes album art (square, higher quality) for thumbnails
+              // Always display AI-suggested title/artist — ground truth of what was requested
+              // track_name / artist_name intentionally NOT set from iTunes to avoid mismatch
               thumbnail: itunesRes.artwork_url || ytRes.thumbnail || null,
               loading: false,
             }
@@ -194,11 +197,75 @@ export default function Relax() {
     setGenerating(false)
   }
 
+  const searchSong = async () => {
+    const q = searchQuery.trim()
+    if (!q || searching) return
+    setSearching(true)
+
+    // Parse "Title - Artist" or "Title – Artist", else treat whole string as title
+    let artist = '', title = q
+    const sep = q.includes(' \u2013 ') ? ' \u2013 ' : q.includes(' - ') ? ' - ' : null
+    if (sep) {
+      const parts = q.split(sep)
+      title  = parts[0].trim()
+      artist = parts.slice(1).join(sep).trim()
+    }
+
+    // Prepend a loading placeholder so the user sees feedback immediately
+    setSongs(prev => [{ title: title || q, artist, loading: true, searched: true }, ...prev])
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
+    setPlayingIdx(null)
+
+    try {
+      const [ytRes, itunesRes] = await Promise.all([
+        fetch(`/api/music/youtube?query=${encodeURIComponent(q)}`).then(r => r.json()),
+        fetch(`/api/music/preview?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title || q)}`).then(r => r.json()),
+      ])
+
+      const ytOk = !!ytRes.found && !!ytRes.audio_url
+      setSongs(prev => {
+        const n = [...prev]
+        const i = n.findIndex(s => s.searched && s.loading)
+        if (i !== -1) {
+          n[i] = {
+            title:        title || q,
+            artist,
+            loading:      false,
+            searched:     true,
+            video_id:     ytRes.found  ? ytRes.video_id  : null,
+            audio_url:    ytRes.found  ? ytRes.audio_url : null,
+            yt_title:     ytRes.found  ? ytRes.yt_title  : '',
+            yt_found:     ytOk,
+            watch_url:    ytRes.watch_url || null,
+            yt_duration:  ytRes.duration  || null,
+            channel:      ytRes.found  ? ytRes.channel   : '',
+            preview_url:  itunesRes.found ? itunesRes.preview_url : null,
+            artwork_url:  itunesRes.found ? itunesRes.artwork_url : null,
+            itunes_found: !!itunesRes.found,
+            thumbnail:    itunesRes.artwork_url || ytRes.thumbnail || null,
+          }
+        }
+        return n
+      })
+      if (ytOk || (itunesRes.found && itunesRes.preview_url)) {
+        setTimeout(() => startPlayRef.current?.(0), 100)
+      }
+    } catch {
+      setSongs(prev => {
+        const n = [...prev]
+        const i = n.findIndex(s => s.searched && s.loading)
+        if (i !== -1) n[i] = { ...n[i], loading: false, yt_found: false, itunes_found: false }
+        return n
+      })
+    }
+    setSearching(false)
+  }
+
   const activeSong = playingIdx !== null ? songs[playingIdx] : null
   const activeMode = songMode(activeSong)
 
   return (
-    <div className="page" style={{ paddingBottom: activeSong ? (activeMode === 'youtube' ? 215 : 80) : 0 }}>
+    <div className="page" style={{ paddingBottom: activeSong ? 80 : 0 }}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Relax 🎧</h1>
@@ -209,6 +276,27 @@ export default function Relax() {
           <input value={model} onChange={e => setModel(e.target.value)} style={{ width: 130, fontSize: 12 }} />
         </div>
       </div>
+
+      {/* ── Direct song search ── */}
+      <motion.div initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }}
+        style={{ display: 'flex', gap: 8, marginBottom: 18, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && searchSong()}
+            placeholder="Search & play any song — e.g. Blinding Lights - The Weeknd"
+            style={{ paddingLeft: 36 }}
+          />
+        </div>
+        <button className="btn btn-ghost" onClick={searchSong}
+          disabled={searching || !searchQuery.trim()} style={{ flexShrink: 0 }}>
+          {searching
+            ? <><RefreshCw size={12} style={{ animation: 'spin 0.8s linear infinite' }} />&nbsp;Searching…</>
+            : <><Search size={12} />&nbsp;Search</>}
+        </button>
+      </motion.div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '290px 1fr', gap: 22, alignItems: 'start' }}>
 
@@ -359,12 +447,19 @@ export default function Relax() {
                           {/* Song info */}
                           <div style={{ flex: 1, padding: '10px 14px', minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {song.track_name || song.title}
+                              {song.title}
                             </div>
                             <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {song.artist_name || song.artist}
+                              {song.artist}
                             </div>
                             <div style={{ display: 'flex', gap: 5, marginTop: 4, alignItems: 'center' }}>
+                              {song.searched && !song.loading && (
+                                <span style={{ fontSize: 10, fontWeight: 700,
+                                  background: 'rgba(6,182,212,0.1)', color: '#22d3ee',
+                                  borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(6,182,212,0.25)' }}>
+                                  🔍
+                                </span>
+                              )}
                               {song.loading ? (
                                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Loading…</span>
                               ) : song.yt_found ? (
@@ -464,13 +559,15 @@ export default function Relax() {
               <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 14, padding: '0 20px' }}>
                 <div style={{ minWidth: 0, flex: '0 0 175px' }}>
                   <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {activeSong.track_name || activeSong.title}
+                    {activeSong.title}
                   </div>
                   <div style={{ fontSize: 11, color: '#a78bfa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {activeSong.artist_name || activeSong.artist}
+                    {activeSong.artist}
                   </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
-                    {activeMode === 'youtube' ? '▶ YouTube Audio' : '◑ 30s iTunes Preview'}
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {activeMode === 'youtube'
+                      ? (activeSong.yt_title ? `▶ ${activeSong.yt_title}` : '▶ YouTube Audio')
+                      : '◑ 30s iTunes Preview'}
                   </div>
                 </div>
                 <button onClick={() => handlePlayPause(playingIdx)} style={{

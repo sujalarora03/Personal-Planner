@@ -762,16 +762,17 @@ def music_preview(artist: str = "", title: str = ""):
 
 
 @app.get("/api/music/youtube")
-def youtube_search(artist: str = "", title: str = ""):
+def youtube_search(artist: str = "", title: str = "", query: str = ""):
     """Use yt-dlp to find a YouTube song and extract a direct audio stream URL.
     No API key needed. No embedding — audio plays directly in the browser.
+    Pass `query` for a raw freeform search (used by the manual search bar).
     """
     try:
         import yt_dlp
     except ImportError:
         return {"found": False, "error": "yt-dlp not installed. Run: pip install yt-dlp"}
 
-    query = f"{artist} {title} official audio"
+    search_query = query.strip() if query.strip() else f'"{artist}" "{title}" official audio'
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -783,7 +784,7 @@ def youtube_search(artist: str = "", title: str = ""):
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch1:{search_query}", download=False)
             if not info:
                 return {"found": False}
             # ytsearch wraps result in a playlist-like dict

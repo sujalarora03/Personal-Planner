@@ -9,5 +9,53 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+    /* ── Right-click context menu for inputs / textareas in PyWebView ── */
+    (function () {
+      var _m = null;
+      function _rm() { if (_m) { _m.remove(); _m = null; } }
+      document.addEventListener('contextmenu', function (e) {
+        var t = e.target;
+        var editable = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
+        _rm();
+        if (!editable) return;
+        e.preventDefault();
+        var hasSel = (t.selectionStart !== undefined)
+          ? (t.selectionStart !== t.selectionEnd)
+          : (window.getSelection().toString().length > 0);
+        var box = document.createElement('div');
+        box.style.cssText = 'position:fixed;background:#1a1a2e;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:4px 0;z-index:999999;min-width:130px;box-shadow:0 8px 24px rgba(0,0,0,0.75);font-family:Segoe UI,system-ui,sans-serif;font-size:13px;';
+        [
+          ['Cut',        hasSel, function () { document.execCommand('cut'); }],
+          ['Copy',       hasSel, function () { document.execCommand('copy'); }],
+          ['Paste',      true,   function () {
+            try {
+              navigator.clipboard.readText().then(function (txt) {
+                document.execCommand('insertText', false, txt);
+              });
+            } catch (ex) { document.execCommand('paste'); }
+          }],
+          ['Select All', true,   function () { if (t.select) t.select(); else document.execCommand('selectAll'); }],
+        ].forEach(function (row) {
+          var label = row[0], enabled = row[1], action = row[2];
+          var item = document.createElement('div');
+          item.textContent = label;
+          item.style.cssText = 'padding:7px 16px;cursor:' + (enabled ? 'pointer' : 'default') + ';color:' + (enabled ? 'rgba(255,255,255,0.87)' : 'rgba(255,255,255,0.27)') + ';user-select:none;border-radius:5px;margin:1px 3px;';
+          if (enabled) {
+            item.addEventListener('mouseenter', function () { item.style.background = 'rgba(124,58,237,0.25)'; });
+            item.addEventListener('mouseleave', function () { item.style.background = ''; });
+            item.addEventListener('mousedown',  function (ev) { ev.preventDefault(); _rm(); action(); });
+          }
+          box.appendChild(item);
+        });
+        box.style.left = Math.min(e.clientX, window.innerWidth  - 155) + 'px';
+        box.style.top  = Math.min(e.clientY, window.innerHeight - 155) + 'px';
+        document.body.appendChild(box);
+        _m = box;
+      });
+      document.addEventListener('click',   _rm);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') _rm(); });
+    })();
+    </script>
   </body>
 </html>
