@@ -26,12 +26,23 @@ def check_for_update() -> dict:
     try:
         from version import APP_VERSION, GITHUB_REPO
         import requests
-        raw_url = (
-            f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
-            f"/version.py"
-        )
-        resp = requests.get(raw_url, timeout=6)
-        resp.raise_for_status()
+
+        # Two candidate URLs — the second is a legacy path that old installers may have baked in.
+        candidate_urls = [
+            f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/version.py",
+            f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/PersonalPlanner/version.py",
+        ]
+        resp = None
+        for raw_url in candidate_urls:
+            try:
+                r = requests.get(raw_url, timeout=6)
+                if r.status_code == 200 and "APP_VERSION" in r.text:
+                    resp = r
+                    break
+            except Exception:
+                continue
+        if resp is None:
+            return {"available": False, "error": "Could not reach GitHub to check for updates."}
 
         ns: dict = {}
         exec(resp.text, ns)  # noqa: S102 — safe: only reading our own file
