@@ -87,7 +87,7 @@ export default function Sidebar() {
                 <span style={{
                   background: 'rgba(124,58,237,0.25)', color: '#a78bfa',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v0.7.3 BETA</span>
+                }}>v0.7.4 BETA</span>
               </div>
             </div>
           )}

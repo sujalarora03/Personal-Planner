@@ -28,7 +28,7 @@ def check_for_update() -> dict:
         import requests
         raw_url = (
             f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
-            f"/PersonalPlanner/version.py"
+            f"/version.py"
         )
         resp = requests.get(raw_url, timeout=6)
         resp.raise_for_status()
