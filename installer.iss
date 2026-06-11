@@ -9,10 +9,11 @@
 ; ============================================================
 
 #define AppName      "Personal Planner"
-#define AppVersion   "0.8.0"
+#define AppVersion   "0.8.1"
 #define AppPublisher "Sujal Arora"
 #define AppURL       "https://github.com/sujalarora03/Personal-Planner"
 #define AppExeName   "PersonalPlanner.exe"
+#define AppCopyright "Copyright (C) 2024-2026 Sujal Arora"
 
 [Setup]
 AppId={{A3F8C2D1-7E4B-4A5C-B6D7-E8F9A0B1C234}
@@ -37,6 +38,16 @@ SetupIconFile=icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+
+; ── Windows VERSIONINFO (shown in File Properties → Details) ────────
+; These fields help Windows SmartScreen and AV engines trust the installer.
+VersionInfoVersion={#AppVersion}.0
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} Setup
+VersionInfoTextVersion={#AppVersion} BETA
+VersionInfoCopyright={#AppCopyright}
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}.0
 
 ; Show a "What's New" link after install
 InfoAfterFile=
