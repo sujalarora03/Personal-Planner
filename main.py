@@ -56,9 +56,26 @@ def _signal_existing_instance():
 
 def create_app_image(size: int = 256) -> Image.Image:
     """
-    Draw the Personal Planner icon: deep purple circle with a white
-    lightning-bolt ⚡ silhouette — matches the Gen-Z sidebar theme.
+    Load the custom generated app logo (app_logo.png) and resize it.
+    If the file is not found, fallback to drawing the lightning bolt.
     """
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    logo_path = os.path.join(base_dir, "app_logo.png")
+    
+    # Also check parent directory if running in dev mode
+    if not os.path.exists(logo_path):
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_logo.png")
+
+    if os.path.exists(logo_path):
+        try:
+            img = Image.open(logo_path)
+            # Create a high-quality resize
+            img = img.resize((size, size), Image.Resampling.LANCZOS)
+            return img
+        except Exception as e:
+            print(f"Error loading custom logo: {e}")
+
+    # Fallback to drawing the original lightning bolt icon
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d   = ImageDraw.Draw(img)
 

@@ -117,21 +117,23 @@ export default function Tasks() {
     load()
   }
 
+  const [dragOverCol, setDragOverCol] = useState(null)
+
   return (
-    <div className="page">
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+    <div className="page" style={{ display: 'flex', flexDirection: 'column', height: '100vh', paddingBottom: 24 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, flexShrink: 0 }}>
         <div>
-          <h1 className="page-title">Tasks</h1>
-          <p className="page-sub">{visible.length} task{visible.length !== 1 ? 's' : ''}</p>
+          <h1 className="page-title">Tasks 📝</h1>
+          <p className="page-sub">{visible.length} task{visible.length !== 1 ? 's' : ''} active</p>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <div className="glass" style={{ display:'flex', borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,0.08)' }}>
+          <div className="glass" style={{ display:'flex', borderRadius:10, overflow:'hidden', border:'1px solid rgba(255,255,255,0.06)' }}>
             <button className={`btn btn-sm ${viewMode==='list' ? 'btn-purple' : 'btn-ghost'}`}
-              style={{ borderRadius:0, border:'none' }} onClick={() => setViewMode('list')}>
+              style={{ borderRadius:0, border:'none', padding: '8px 12px' }} onClick={() => setViewMode('list')}>
               <List size={14}/>
             </button>
             <button className={`btn btn-sm ${viewMode==='board' ? 'btn-purple' : 'btn-ghost'}`}
-              style={{ borderRadius:0, border:'none' }} onClick={() => setViewMode('board')}>
+              style={{ borderRadius:0, border:'none', padding: '8px 12px' }} onClick={() => setViewMode('board')}>
               <Columns size={14}/>
             </button>
           </div>
@@ -140,7 +142,7 @@ export default function Tasks() {
       </div>
 
       {/* Filters */}
-      <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap' }}>
+      <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap', flexShrink: 0 }}>
         <input placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ width:200 }} />
         <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width:140 }}>
@@ -160,60 +162,107 @@ export default function Tasks() {
       {/* Task list or Kanban board */}
       {viewMode === 'board' ? (
         /* ── Kanban Board ─────────────────────────────────────────── */
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, flex:1, minHeight:0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {['Todo', 'In Progress', 'Done'].map(col => {
-            const colTasks = tasks.filter(t => t.status === col && !t.archived)
+            const colTasks = visible.filter(t => t.status === col && !t.archived)
             const colColor = STATUS_COLORS[col]
+            const isOver = dragOverCol === col
             return (
               <div key={col}
                 onDragOver={e => e.preventDefault()}
+                onDragEnter={() => setDragOverCol(col)}
+                onDragLeave={() => setDragOverCol(null)}
                 onDrop={async () => {
+                  setDragOverCol(null)
                   if (dragging && dragging.status !== col) {
                     await api.updateTask(dragging.id, { status: col })
                     setDragging(null); load()
                   } else { setDragging(null) }
                 }}
-                style={{ display:'flex', flexDirection:'column', gap:8, minHeight:200,
-                  background: dragging ? 'rgba(255,255,255,0.02)' : 'transparent',
-                  borderRadius:12, padding:8, border:`1px solid ${dragging ? colColor + '33' : 'rgba(255,255,255,0.04)'}`,
-                  transition:'border-color 0.2s, background 0.2s' }}>
-                <div style={{ fontWeight:700, fontSize:13, padding:'4px 6px', marginBottom:4,
-                  color:colColor, display:'flex', justifyContent:'space-between' }}>
-                  <span>{col}</span>
-                  <span style={{ opacity:0.5 }}>{colTasks.length}</span>
+                className="glass"
+                style={{ 
+                  display:'flex', 
+                  flexDirection:'column', 
+                  height: '100%',
+                  background: isOver ? 'rgba(139, 92, 246, 0.08)' : 'rgba(255, 255, 255, 0.015)',
+                  border: `1px solid ${isOver ? '#8b5cf6' : 'rgba(255, 255, 255, 0.06)'}`,
+                  borderRadius: 16, 
+                  padding: 16, 
+                  transition:'all 0.2s ease'
+                }}
+              >
+                <div style={{ 
+                  fontWeight: 800, 
+                  fontSize: 14, 
+                  fontFamily: 'var(--font-display)',
+                  marginBottom: 14,
+                  color: colColor, 
+                  display: 'flex', 
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexShrink: 0
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: colColor }} />
+                    <span>{col}</span>
+                  </div>
+                  <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 20, color: 'rgba(255,255,255,0.45)' }}>{colTasks.length}</span>
                 </div>
-                {colTasks.map(task => {
-                  const pc = PRIORITY_COLORS[task.priority] || '#6b7280'
-                  const overdue = task.due_date && task.due_date < new Date().toISOString().slice(0,10)
-                  return (
-                    <div key={task.id}
-                      draggable
-                      onDragStart={() => setDragging({ id:task.id, status:task.status })}
-                      onDragEnd={() => setDragging(null)}
-                      className="glass"
-                      style={{ padding:'10px 12px', cursor:'grab', borderLeft:`3px solid ${pc}`,
-                        opacity: dragging?.id === task.id ? 0.4 : 1, transition:'opacity 0.2s' }}>
-                      <div style={{ fontWeight:600, fontSize:13, marginBottom:6 }}>{task.title}</div>
-                      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                        <span className="badge" style={{ background:`${pc}22`, color:pc, fontSize:10 }}>{task.priority}</span>
-                        {task.project_name && <span className="badge" style={{ background:'rgba(124,58,237,0.12)', color:'#a78bfa', fontSize:10 }}>📁 {task.project_name}</span>}
-                        {task.due_date && <span className="badge" style={{ background: overdue ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)', color: overdue ? '#f87171' : 'rgba(255,255,255,0.4)', fontSize:10 }}>
-                          {overdue ? '⚠ ' : ''}{new Date(task.due_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-                        </span>}
-                      </div>
-                      <div style={{ display:'flex', gap:5, marginTop:8 }}>
-                        <button className="btn btn-ghost btn-sm" style={{ padding:'2px 6px' }} onClick={() => setEditing(task)}><Edit2 size={12}/></button>
-                        <button className="btn btn-danger btn-sm" style={{ padding:'2px 6px' }} onClick={() => setDelConfirm(task)}><Trash2 size={12}/></button>
-                      </div>
+                
+                {/* Scrollable Column Body */}
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
+                  {colTasks.map(task => {
+                    const pc = PRIORITY_COLORS[task.priority] || '#6b7280'
+                    const overdue = task.due_date && task.due_date < new Date().toISOString().slice(0,10)
+                    return (
+                      <motion.div key={task.id}
+                        layoutId={`task-card-${task.id}`}
+                        draggable
+                        onDragStart={() => setDragging({ id:task.id, status:task.status })}
+                        onDragEnd={() => setDragging(null)}
+                        className="glass-card"
+                        style={{ 
+                          padding: 14, 
+                          cursor: 'grab', 
+                          borderLeft: `4px solid ${pc}`,
+                          opacity: dragging?.id === task.id ? 0.3 : 1, 
+                          transition: 'opacity 0.2s' 
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'white', marginBottom: 6, lineHeight: 1.4 }}>{task.title}</div>
+                        {task.description && (
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {task.description}
+                          </div>
+                        )}
+                        <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom: 8 }}>
+                          <span className="badge" style={{ background:`${pc}18`, color:pc, fontSize:9, padding: '2px 6px' }}>{task.priority}</span>
+                          <span className="badge" style={{ background:'rgba(255,255,255,0.05)', color:'rgba(255,255,255,0.4)', fontSize:9, padding: '2px 6px' }}>{task.category}</span>
+                          {task.project_name && <span className="badge" style={{ background:'rgba(139,92,246,0.12)', color:'#c084fc', fontSize:9, padding: '2px 6px' }}>📁 {task.project_name}</span>}
+                          {task.due_date && (
+                            <span className="badge" style={{ background: overdue ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.05)', color: overdue ? '#fca5a5' : 'rgba(255,255,255,0.4)', fontSize:9, padding: '2px 6px' }}>
+                              {overdue ? '⚠ ' : ''}{new Date(task.due_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display:'flex', gap:6, justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: 8 }}>
+                          <button className="btn btn-ghost btn-sm" style={{ padding:'4px 8px', borderRadius: 6 }} onClick={() => setEditing(task)}><Edit2 size={11}/></button>
+                          <button className="btn btn-danger btn-sm" style={{ padding:'4px 8px', borderRadius: 6 }} onClick={() => setDelConfirm(task)}><Trash2 size={11}/></button>
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                  
+                  {colTasks.length === 0 && (
+                    <div style={{ 
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'rgba(255,255,255,0.15)', fontSize: 12, border: '2px dashed rgba(255,255,255,0.04)',
+                      borderRadius: 12, minHeight: 120, transition: 'all 0.2s' 
+                    }}>
+                      Drop here
                     </div>
-                  )
-                })}
-                {/* Drop zone hint when column empty */}
-                {colTasks.length === 0 && (
-                  <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center',
-                    color:'rgba(255,255,255,0.12)', fontSize:12, border:'2px dashed rgba(255,255,255,0.06)',
-                    borderRadius:8, minHeight:80 }}>Drop here</div>
-                )}
+                  )}
+                </div>
               </div>
             )
           })}

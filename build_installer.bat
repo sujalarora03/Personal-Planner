@@ -103,22 +103,10 @@ cd ..
 :after_frontend
 call :log "      Frontend ready."
 
-:: ── Step 3: Download Ollama installer ─────────────────────────────────
+:: ── Step 3: Skip Ollama bundling (downloaded at install-time) ───────────
 call :log ""
-call :log "[3/6] Preparing Ollama installer..."
-if exist OllamaSetup.exe (
-    call :log "      OllamaSetup.exe already present, skipping download."
-) else (
-    call :log "      Downloading (~150 MB, may take a few minutes)..."
-    powershell -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'OllamaSetup.exe' -UseBasicParsing } catch { Write-Host $_.Exception.Message }" >> "%LOG%" 2>&1
-    if not exist OllamaSetup.exe (
-        call :log "      [WARN] Download failed - creating placeholder."
-        call :log "             Users can install Ollama manually from https://ollama.com"
-        echo placeholder > OllamaSetup.exe
-    ) else (
-        call :log "      Downloaded OK."
-    )
-)
+call :log "[3/6] Skipping Ollama Setup download..."
+call :log "      Ollama is now downloaded over the web dynamically during installation."
 
 :: ── Step 4: PyInstaller ───────────────────────────────────────────────
 call :log ""

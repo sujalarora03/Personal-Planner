@@ -70,6 +70,18 @@ export const api = {
 
   // App updates
   checkUpdate: () => req('GET', '/update/check'),
+  downloadUpdate: (downloadUrl) => req('POST', '/update/download', { download_url: downloadUrl }),
+  downloadUpdateStatus: () => req('GET', '/update/download/status'),
+  installUpdate: () => req('POST', '/update/install'),
+
+  // Embedded LLM Management
+  getLlmStatus: () => req('GET', '/llm/status'),
+  startLlmDownload: () => req('POST', '/llm/download'),
+
+  // Ollama Model Management
+  pullModel: (name) => req('POST', '/ollama/models/pull', { name }),
+  pullModelStatus: () => req('GET', '/ollama/models/pull/status'),
+  deleteModel: (name) => req('POST', '/ollama/models/delete', { name }),
 
   // Export
   exportData: () => fetch('/api/export').then(r => r.blob()),

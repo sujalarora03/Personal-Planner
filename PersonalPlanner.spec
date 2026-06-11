@@ -1,20 +1,20 @@
-# -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for Personal Planner
-# Requires PyInstaller 6+
-# Run from the PersonalPlanner\ directory:
-#   python -m PyInstaller PersonalPlanner.spec --noconfirm
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_data_files
+
+binaries = collect_dynamic_libs('llama_cpp')
 
 datas = [
     # React frontend (built output)
     ('frontend/dist',  'frontend/dist'),
     # App icon
     ('icon.ico',       '.'),
+    # PNG logo
+    ('app_logo.png',   '.'),
     # Version file (read by updater at runtime)
     ('version.py',     '.'),
     ('updater.py',     '.'),
     ('database.py',    '.'),
     ('api.py',         '.'),
-]
+] + collect_data_files('llama_cpp')
 
 hiddenimports = [
     # uvicorn internals
@@ -50,13 +50,13 @@ hiddenimports = [
 a = Analysis(
     ['main.py'],
     pathex=['.'],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'scipy', 'numpy', 'PyQt5', 'PyQt6'],
+    excludes=['tkinter', 'scipy', 'PyQt5', 'PyQt6'],
     noarchive=False,
 )
 

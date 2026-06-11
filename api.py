@@ -25,6 +25,69 @@ app = FastAPI(title="Personal Planner API", version="0.5")
 db  = Database()
 db.init_db()
 
+# ── Local LLM Directory & Lazy Loader Logic ────────────────────────────────────
+if getattr(sys, 'frozen', False):
+    USER_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'PersonalPlanner')
+else:
+    USER_DIR = os.path.dirname(os.path.abspath(__file__))
+
+MODELS_DIR = os.path.join(USER_DIR, "models")
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+MODEL_FILENAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
+MODEL_PATH = os.path.join(MODELS_DIR, MODEL_FILENAME)
+
+_llama_instance = None
+_download_status = {"status": "idle", "progress": 0, "error": None, "error_message": None}
+
+def get_llama_model():
+    global _llama_instance
+    if _llama_instance is not None:
+        return _llama_instance
+
+    if not os.path.exists(MODEL_PATH):
+        return None
+
+    try:
+        from llama_cpp import Llama
+        _llama_instance = Llama(
+            model_path=MODEL_PATH,
+            n_ctx=2048,
+            n_threads=None, # auto-detect threads
+            verbose=False
+        )
+        return _llama_instance
+    except Exception as e:
+        print(f"Error loading llama model: {e}")
+        return None
+
+def _download_thread():
+    global _download_status
+    url = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
+    
+    try:
+        _download_status = {"status": "downloading", "progress": 0, "error": None, "error_message": None}
+        os.makedirs(MODELS_DIR, exist_ok=True)
+        temp_path = MODEL_PATH + ".tmp"
+        
+        import urllib.request
+        def reporthook(blocknum, blocksize, totalsize):
+            if totalsize > 0:
+                percent = min(100.0, blocknum * blocksize * 100 / totalsize)
+                _download_status["progress"] = round(percent, 1)
+
+        urllib.request.urlretrieve(url, temp_path, reporthook)
+        
+        if os.path.exists(MODEL_PATH):
+            os.remove(MODEL_PATH)
+        os.rename(temp_path, MODEL_PATH)
+        
+        global _llama_instance
+        _llama_instance = None # clear old reference to force reload
+        _download_status = {"status": "completed", "progress": 100, "error": None, "error_message": None}
+    except Exception as e:
+        _download_status = {"status": "error", "progress": 0, "error": str(e), "error_message": str(e)}
+
 # ── CORS (PyWebView uses file:// or localhost origin) ─────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -323,6 +386,31 @@ def get_skills():
     return cats
 
 
+class DownloadRequest(BaseModel):
+    download_url: str
+
+class ModelRequest(BaseModel):
+    name: str
+
+_pull_status = {"status": "idle", "model": "", "error": ""}
+
+def _bg_pull(model_name: str):
+    global _pull_status
+    _pull_status["status"] = "pulling"
+    _pull_status["model"] = model_name
+    _pull_status["error"] = ""
+    try:
+        import requests as _requests
+        resp = _requests.post("http://localhost:11434/api/pull", json={"name": model_name, "stream": False}, timeout=300)
+        if resp.status_code == 200:
+            _pull_status["status"] = "completed"
+        else:
+            _pull_status["status"] = "error"
+            _pull_status["error"] = resp.text
+    except Exception as e:
+        _pull_status["status"] = "error"
+        _pull_status["error"] = str(e)
+
 @app.get("/api/update/check")
 def check_update():
     """Check GitHub main branch for a newer version of the app."""
@@ -331,6 +419,47 @@ def check_update():
         return check_for_update()
     except Exception as e:
         return {"available": False, "error": str(e)}
+
+@app.post("/api/update/download")
+def trigger_download(body: DownloadRequest):
+    from updater import start_download_thread
+    start_download_thread(body.download_url)
+    return {"ok": True}
+
+@app.get("/api/update/download/status")
+def download_status():
+    from updater import get_download_status
+    return get_download_status()
+
+@app.post("/api/update/install")
+def install_update():
+    from updater import launch_installer
+    ok = launch_installer()
+    if not ok:
+        raise HTTPException(status_code=400, detail="Installer file not found or download incomplete")
+    return {"ok": True}
+
+@app.post("/api/ollama/models/pull")
+def pull_ollama_model(body: ModelRequest):
+    if _pull_status["status"] == "pulling":
+        raise HTTPException(status_code=400, detail="A model pull is already in progress")
+    threading.Thread(target=_bg_pull, args=(body.name,), daemon=True).start()
+    return {"ok": True}
+
+@app.get("/api/ollama/models/pull/status")
+def pull_ollama_status():
+    return _pull_status
+
+@app.post("/api/ollama/models/delete")
+def delete_ollama_model(body: ModelRequest):
+    try:
+        import requests as _requests
+        resp = _requests.delete("http://localhost:11434/api/delete", json={"name": body.name}, timeout=30)
+        if resp.status_code == 200:
+            return {"ok": True}
+        return {"ok": False, "error": resp.text}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -462,7 +591,7 @@ def get_today_planner():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/review/weekly")
-def weekly_review(model: str = "llama3.2"):
+def weekly_review():
     today = date.today()
     week_ago = (today - timedelta(days=7)).isoformat()
     all_tasks = db.get_tasks()
@@ -489,19 +618,26 @@ def weekly_review(model: str = "llama3.2"):
         summary += f" Completed: {titles}."
 
     try:
-        import requests as _r
-        resp = _r.post("http://localhost:11434/api/chat", json={
-            "model": model,
-            "messages": [
+        llm = get_llama_model()
+        if not llm:
+            fallback = (
+                f"This week you logged {total_min // 60}h {total_min % 60}m of work"
+                f" and completed {len(done_this_week)} task{'s' if len(done_this_week) != 1 else ''}. "
+                "Download the local AI model to enable automated coaching insights!"
+            )
+            return {"review": fallback, "source": "fallback", "stats": stats}
+
+        resp = llm.create_chat_completion(
+            messages=[
                 {"role": "system", "content": "Write a short, warm, encouraging weekly productivity review in 3-4 sentences. Be specific and actionable."},
                 {"role": "user", "content": f"Weekly review{' for ' + name if name else ''}:\n{summary}"},
             ],
-            "stream": False,
-        }, timeout=30)
-        if resp.status_code == 200:
-            text = (resp.json().get('message', {}).get('content', '') or '').strip()
-            if len(text) > 10:
-                return {"review": text, "source": "ollama", "stats": stats}
+            temperature=0.7,
+            max_tokens=256
+        )
+        text = resp["choices"][0]["message"]["content"].strip()
+        if len(text) > 10:
+            return {"review": text, "source": "local_llm", "stats": stats}
     except Exception:
         pass
 
@@ -530,17 +666,9 @@ _FALLBACK_QUOTES = [
 def get_daily_quote():
     fallback = random.choice(_FALLBACK_QUOTES)
     try:
-        import requests as _requests
-
-        tags = _requests.get("http://localhost:11434/api/tags", timeout=2)
-        if tags.status_code != 200:
+        llm = get_llama_model()
+        if not llm:
             return {"quote": fallback, "source": "fallback"}
-
-        models = [m.get("name") for m in tags.json().get("models", []) if m.get("name")]
-        if not models:
-            return {"quote": fallback, "source": "fallback"}
-
-        model = "llama3.2" if "llama3.2" in models else models[0]
 
         p = db.get_profile() or {}
         first_name = (p.get("name") or "").split(" ")[0]
@@ -552,33 +680,26 @@ def get_daily_quote():
             context_bits.append(f"They work as {role}.")
         context = " ".join(context_bits)
 
-        resp = _requests.post(
-            "http://localhost:11434/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You generate ultra-short motivational one-liners. "
-                            "Max 18 words. Output ONLY the quote text."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Give me one motivational line for today. {context}",
-                    },
-                ],
-                "stream": False,
-            },
-            timeout=8,
+        resp = llm.create_chat_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You generate ultra-short motivational one-liners. "
+                        "Max 18 words. Output ONLY the quote text."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Give me one motivational line for today. {context}",
+                },
+            ],
+            max_tokens=64,
+            temperature=0.8
         )
-        if resp.status_code != 200:
-            return {"quote": fallback, "source": "fallback"}
-
-        quote = (resp.json().get("message", {}).get("content", "") or "").strip().strip('"').strip("'")
+        quote = resp["choices"][0]["message"]["content"].strip().strip('"').strip("'")
         if 5 < len(quote) < 220:
-            return {"quote": quote, "source": "ollama", "model": model}
+            return {"quote": quote, "source": "local_llm", "model": MODEL_FILENAME}
     except Exception:
         pass
 
@@ -587,16 +708,31 @@ def get_daily_quote():
 
 @app.get("/api/ollama/status")
 def ollama_status():
-    """Quick check: is Ollama running and which models are installed?"""
-    try:
-        import requests as _requests
-        tags = _requests.get("http://localhost:11434/api/tags", timeout=2)
-        if tags.status_code != 200:
-            return {"running": False, "models": []}
-        models = [m.get("name") for m in tags.json().get("models", []) if m.get("name")]
-        return {"running": True, "models": models}
-    except Exception:
-        return {"running": False, "models": []}
+    """Fallback status check for Ollama UI routes — maps to embedded model status."""
+    exists = os.path.exists(MODEL_PATH)
+    return {
+        "running": True,
+        "models": [MODEL_FILENAME] if exists else []
+    }
+
+@app.get("/api/llm/status")
+def get_llm_status():
+    global _download_status
+    model_exists = os.path.exists(MODEL_PATH)
+    return {
+        "model_exists": model_exists,
+        "model_path": MODEL_PATH,
+        "download": _download_status,
+        "running": _llama_instance is not None
+    }
+
+@app.post("/api/llm/download")
+def start_llm_download():
+    global _download_status
+    if _download_status["status"] == "downloading":
+        return {"message": "Download already in progress"}
+    threading.Thread(target=_download_thread, daemon=True).start()
+    return {"message": "Download started"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -606,7 +742,7 @@ def ollama_status():
 class MoodRequest(BaseModel):
     mood: str
     context: str = ""
-    model: str = "llama3.2"
+    model: str = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
 @app.post("/api/mood/suggest")
 def mood_suggest(body: MoodRequest):
@@ -620,36 +756,36 @@ def mood_suggest(body: MoodRequest):
 
     system = (
         "You are a music expert. Output ONLY a valid JSON array — no extra text, "
-        "no markdown fences, nothing else. "
-        'Format: [{"artist":"Artist Name","title":"Song Title"}, ...] '
-        "Suggest exactly 8 songs that match the mood. Be diverse across genres and eras."
+        "no markdown fences, nothing else.\n"
+        'Format: [{"artist":"Artist Name","title":"Song Title"}]\n'
+        "CRITICAL REQUIREMENTS:\n"
+        "- Suggest exactly 8 songs.\n"
+        "- Every song MUST be a real, well-known, existing track. NEVER make up artists, bands, or titles.\n"
+        "- Every song MUST match the listener's mood and strictly adhere to the preferred genres if specified. "
+        "For example, if preferred genres lists 'Lo-fi', you must ONLY suggest actual lo-fi tracks. If no genre is specified, be diverse."
     )
     prompt = f"{name_part}{ctx_part}Mood: {body.mood}"
 
     try:
-        import requests as _r
-        resp = _r.post(
-            "http://localhost:11434/api/chat",
-            json={
-                "model":    body.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": prompt},
-                ],
-                "stream": False,
-            },
-            timeout=60,
+        llm = get_llama_model()
+        if not llm:
+            return {"songs": [], "error": "Model file not found. Please download it first."}
+
+        resp = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=512
         )
-        resp.raise_for_status()
-        content = resp.json().get("message", {}).get("content", "").strip()
+        content = resp["choices"][0]["message"]["content"].strip()
         # Strip markdown fences if present
         content = _re3.sub(r"```[a-z]*\n?", "", content).strip("`").strip()
         songs   = _j.loads(content)
         if isinstance(songs, list):
             return {"songs": [{"artist": s.get("artist",""), "title": s.get("title","")} for s in songs[:8]]}
         return {"songs": [], "error": "Unexpected format from model"}
-    except _r.exceptions.ConnectionError:
-        return {"songs": [], "error": "Ollama not running — start it with: ollama serve"}
     except _j.JSONDecodeError:
         return {"songs": [], "error": "Model returned non-JSON. Try again or use a different model."}
     except Exception as e:
@@ -684,6 +820,41 @@ def music_preview(artist: str = "", title: str = ""):
         return {"found": False}
     except Exception as e:
         return {"found": False, "error": str(e)}
+
+
+@app.get("/api/music/search")
+def music_search(q: str = ""):
+    """Search iTunes music API for a custom query."""
+    if not q.strip():
+        return {"results": []}
+    try:
+        import requests as _r
+        resp = _r.get(
+            "https://itunes.apple.com/search",
+            params={"term": q, "media": "music", "entity": "song", "limit": 15},
+            timeout=6,
+        )
+        results = resp.json().get("results", [])
+        songs = []
+        for t in results:
+            art = t.get("artworkUrl100", "")
+            art = art.replace("100x100bb", "300x300bb").replace("100x100", "300x300")
+            songs.append({
+                "title": t.get("trackName", ""),
+                "artist": t.get("artistName", ""),
+                "track_name": t.get("trackName", ""),
+                "artist_name": t.get("artistName", ""),
+                "preview_url": t.get("previewUrl"),
+                "artwork_url": art,
+                "thumbnail": art,
+                "genre": t.get("primaryGenreName", ""),
+                "itunes_found": True,
+                "yt_found": False,
+                "loading": False
+            })
+        return {"results": songs}
+    except Exception as e:
+        return {"results": [], "error": str(e)}
 
 
 @app.get("/api/music/youtube")
@@ -1219,7 +1390,7 @@ async def upload_resume(file: UploadFile = File(...)):
 class AnalyzeRequest(BaseModel):
     resume_id: int
     prompt_type: str = "Skill Gap Analysis"
-    model: str = "llama3.2"
+    model: str = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
 @app.post("/api/resumes/analyze")
 def analyze_resume(body: AnalyzeRequest):
@@ -1231,27 +1402,23 @@ def analyze_resume(body: AnalyzeRequest):
 
     def stream():
         try:
-            import requests as _requests
-            resp = _requests.post(
-                "http://localhost:11434/api/chat",
-                json={"model": body.model, "messages": [
+            llm = get_llama_model()
+            if not llm:
+                yield "⚠ Error: Local AI model not found. Please download it first."
+                return
+
+            response = llm.create_chat_completion(
+                messages=[
                     {"role": "system", "content": "You are an expert career coach and resume analyst."},
                     {"role": "user",   "content": full_prompt},
-                ], "stream": True},
-                stream=True, timeout=120,
+                ],
+                stream=True,
+                max_tokens=1024
             )
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                try:
-                    data  = _json.loads(line)
-                    chunk = data.get("message", {}).get("content", "")
-                    if chunk:
-                        yield chunk
-                    if data.get("done"):
-                        break
-                except Exception:
-                    pass
+            for chunk in response:
+                delta = chunk["choices"][0]["delta"]
+                if "content" in delta:
+                    yield delta["content"]
         except Exception as e:
             yield f"\n⚠ Error: {e}"
 

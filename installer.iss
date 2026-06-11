@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define AppName      "Personal Planner"
-#define AppVersion   "0.7.0"
+#define AppVersion   "0.8.0"
 #define AppPublisher "Sujal Arora"
 #define AppURL       "https://github.com/sujalarora03/Personal-Planner"
 #define AppExeName   "PersonalPlanner.exe"
@@ -58,44 +58,16 @@ Name: "startuprun"; \
   GroupDescription: "Startup:"; \
   Flags: unchecked
 
-; ── Ollama (local AI engine) ──────────────────────────────────────
-Name: "install_ollama"; \
-  Description: "Install &Ollama (local AI engine — powers AI chat, quotes, Relax tab)"; \
-  GroupDescription: "AI Features (Optional — requires internet):"; \
-  Flags: unchecked
-
-Name: "install_ollama\model_llama32"; \
-  Description: "Download llama3.2 model  (~2.0 GB)  Recommended — fast & capable"; \
-  GroupDescription: "AI Models to download:"; \
-  Flags: unchecked
-
-Name: "install_ollama\model_mistral"; \
-  Description: "Download mistral model   (~4.1 GB)  Larger, more detailed responses"; \
-  GroupDescription: "AI Models to download:"; \
-  Flags: unchecked
-
-Name: "install_ollama\model_phi3"; \
-  Description: "Download phi3 model      (~2.3 GB)  Lightweight alternative"; \
-  GroupDescription: "AI Models to download:"; \
-  Flags: unchecked
+; ── Local AI Model ───────────────────────────────────────────────
+Name: "download_model"; \
+  Description: "Download Qwen 2.5 3B local AI model (~2.0 GB — powers AI chat, quotes, Relax tab)"; \
+  GroupDescription: "AI Features (Optional — requires internet):"
 
 [Files]
 ; Bundle everything from the PyInstaller output folder
 Source: "dist\PersonalPlanner\*"; \
   DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Model setup script (copied to app dir so users can re-run it later)
-Source: "setup_models.ps1"; \
-  DestDir: "{app}"; \
-  Flags: ignoreversion; \
-  Tasks: install_ollama
-
-; Ollama installer — bundled so no internet needed for the engine itself
-Source: "OllamaSetup.exe"; \
-  DestDir: "{tmp}"; \
-  Flags: deleteafterinstall; \
-  Tasks: install_ollama
 
 [Icons]
 Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"
@@ -113,14 +85,6 @@ Root: HKCU; \
   Tasks: startuprun
 
 [Run]
-; Install Ollama silently (only if task selected)
-Filename: "{tmp}\OllamaSetup.exe"; \
-  Parameters: "/S"; \
-  Description: "Installing Ollama AI engine..."; \
-  StatusMsg: "Installing Ollama AI engine (this takes ~30 seconds)..."; \
-  Tasks: install_ollama; \
-  Flags: waituntilterminated
-
 ; Launch the app after install
 Filename: "{app}\{#AppExeName}"; \
   Description: "Launch {#AppName}"; \
@@ -129,40 +93,50 @@ Filename: "{app}\{#AppExeName}"; \
 [UninstallDelete]
 Type: dirifempty; Name: "{app}"
 
-; ── Pascal code: pull selected AI models after install ────────────
+; ── Pascal code: download and deploy local AI GGUF model ──────────
 [Code]
+var
+  DownloadPage: TDownloadWizardPage;
+
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), nil);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CurPageID = wpReady) and IsTaskSelected('download_model') then begin
+    DownloadPage.Clear;
+    DownloadPage.Add('https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf', 'qwen2.5-3b-instruct-q4_k_m.gguf', '');
+    DownloadPage.Show;
+    try
+      try
+        DownloadPage.Download;
+      except
+        SuppressibleMsgBox(AddPeriod(GetExceptionMessage), mbCriticalError, MB_OK, IDOK);
+        Result := False;
+      end;
+    finally
+      DownloadPage.Hide;
+    end;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Models, PSArgs, ScriptPath: string;
-  ResultCode: Integer;
+  SrcPath, DestDir, DestPath: string;
 begin
   if CurStep <> ssPostInstall then Exit;
-  if not IsTaskSelected('install_ollama') then Exit;
+  if not IsTaskSelected('download_model') then Exit;
 
-  Models := '';
-  if IsTaskSelected('install_ollama\model_llama32') then begin
-    if Models <> '' then Models := Models + ',';
-    Models := Models + 'llama3.2';
+  SrcPath := ExpandConstant('{tmp}\qwen2.5-3b-instruct-q4_k_m.gguf');
+  DestDir := ExpandConstant('{userappdata}\PersonalPlanner\models');
+  
+  if ForceDirectories(DestDir) then begin
+    DestPath := DestDir + '\qwen2.5-3b-instruct-q4_k_m.gguf';
+    if FileExists(SrcPath) then begin
+      FileCopy(SrcPath, DestPath, False);
+    end;
   end;
-  if IsTaskSelected('install_ollama\model_mistral') then begin
-    if Models <> '' then Models := Models + ',';
-    Models := Models + 'mistral';
-  end;
-  if IsTaskSelected('install_ollama\model_phi3') then begin
-    if Models <> '' then Models := Models + ',';
-    Models := Models + 'phi3';
-  end;
-
-  if Models = '' then Exit;
-
-  ScriptPath := ExpandConstant('{app}\setup_models.ps1');
-
-  // -ExecutionPolicy Bypass + -File handles spaces in path and respects param()
-  // Model list passed as -ModelList argument so param() block works correctly.
-  PSArgs := '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" -ModelList "' + Models + '"';
-
-  // Launch with ewNoWait — installer closes immediately, download runs in
-  // a separate visible console window. Model downloads can take 30+ minutes
-  // and should not block or appear to freeze the installer.
-  Exec('powershell.exe', PSArgs, '', SW_SHOW, ewNoWait, ResultCode);
 end;

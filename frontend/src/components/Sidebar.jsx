@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import logoImg from '../assets/logo.png'
 import {
   Home, LayoutDashboard, CheckSquare, Clock, Rocket,
   Target, BookOpen, GraduationCap, Bot, User, Headphones,
   ChevronLeft, ChevronRight, Timer, CheckCircle2, NotebookPen, CalendarDays,
+  ArrowUpCircle,
 } from 'lucide-react'
 
 const NAV = [
@@ -23,11 +25,12 @@ const NAV = [
   { to: '/career',     icon: GraduationCap,  label: 'Career' },
   { to: '/ai',         icon: Bot,            label: 'AI Assistant' },
   { to: '/relax',      icon: Headphones,     label: 'Relax' },
+  { to: '/updates',    icon: ArrowUpCircle,  label: 'Updates & Help' },
 ]
 
 const STORAGE_KEY = 'pp_sidebar_collapsed'
 
-export default function Sidebar() {
+export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
   const navigate    = useNavigate()
   const { pathname } = useLocation()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
@@ -52,15 +55,15 @@ export default function Sidebar() {
       width: W,
       minWidth: W,
       height: '100vh',
-      background: 'rgba(6,6,15,0.85)',
-      backdropFilter: 'blur(20px)',
-      borderRight: '1px solid rgba(255,255,255,0.06)',
+      background: 'rgba(10, 10, 20, 0.4)',
+      backdropFilter: 'blur(30px) saturate(180%)',
+      borderRight: '1px solid rgba(255, 255, 255, 0.06)',
       display: 'flex',
       flexDirection: 'column',
-      padding: collapsed ? '20px 10px' : '20px 12px',
+      padding: collapsed ? '20px 8px' : '20px 12px',
       position: 'relative',
       zIndex: 10,
-      transition: 'width 0.25s ease, min-width 0.25s ease, padding 0.25s ease',
+      transition: 'width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), min-width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.25s ease',
       overflow: 'hidden',
     }}>
       {/* Logo row */}
@@ -74,20 +77,19 @@ export default function Sidebar() {
         overflow: 'hidden',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <div style={{
+          <img src={logoImg} alt="logo" style={{
             width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-            background: 'linear-gradient(135deg,#7c3aed,#06b6d4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18, boxShadow: '0 0 20px rgba(124,58,237,0.4)',
-          }}>⚡</div>
+            boxShadow: '0 0 20px rgba(139,92,246,0.25)',
+            objectFit: 'cover'
+          }} />
           {!collapsed && (
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'white', whiteSpace: 'nowrap' }}>Personal Planner</div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: 'white', whiteSpace: 'nowrap', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>Personal Planner</div>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
                 <span style={{
-                  background: 'rgba(124,58,237,0.25)', color: '#a78bfa',
+                  background: 'rgba(139,92,246,0.2)', color: '#c084fc',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v0.5 BETA</span>
+                }}>v0.8.0</span>
               </div>
             </div>
           )}
@@ -95,9 +97,9 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', overflowX: 'hidden' }}>
+      <nav style={{ flex: 1, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', overflowX: 'hidden' }}>
         {NAV.map(({ to, icon: Icon, label }) => {
-          const active = pathname === to
+          const active = pathname === to || (to !== '/' && pathname.startsWith(to))
           return (
             <motion.button
               key={to}
@@ -105,19 +107,60 @@ export default function Sidebar() {
               onClick={() => navigate(to)}
               whileTap={{ scale: 0.97 }}
               title={collapsed ? label : undefined}
-              style={{ justifyContent: collapsed ? 'center' : 'flex-start', paddingLeft: collapsed ? 0 : undefined, position: 'relative' }}
+              style={{ 
+                justifyContent: collapsed ? 'center' : 'flex-start', 
+                paddingLeft: collapsed ? 0 : undefined, 
+                position: 'relative',
+                background: 'transparent', // controlled by sliding layout bubble
+              }}
             >
-              <Icon size={16} strokeWidth={active ? 2.5 : 2} />
-              {!collapsed && <span>{label}</span>}
-              {active && !collapsed && (
+              {active && (
                 <motion.div
-                  layoutId="nav-indicator"
+                  layoutId="sidebar-active"
                   style={{
-                    position: 'absolute', right: 12,
-                    width: 4, height: 4, borderRadius: '50%',
-                    background: '#7c3aed',
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(139, 92, 246, 0.12)',
+                    borderRadius: 12,
+                    borderLeft: '3px solid #8b5cf6',
+                    zIndex: -1,
                   }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                 />
+              )}
+              <Icon size={16} strokeWidth={active ? 2.5 : 2} style={{ color: active ? '#c084fc' : 'inherit' }} />
+              {!collapsed && <span>{label}</span>}
+              
+              {to === '/focus' && timerRunning && (
+                <>
+                  {!collapsed ? (
+                    <span style={{
+                      marginLeft: 'auto',
+                      fontSize: 10,
+                      fontWeight: 'bold',
+                      background: timerMode === 'focus' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(6, 182, 212, 0.2)',
+                      color: timerMode === 'focus' ? '#c084fc' : '#22d3ee',
+                      padding: '2px 6px',
+                      borderRadius: 6,
+                      border: `1px solid ${timerMode === 'focus' ? 'rgba(139, 92, 246, 0.3)' : 'rgba(6, 182, 212, 0.3)'}`,
+                      fontFamily: 'monospace',
+                      boxShadow: `0 0 8px ${timerMode === 'focus' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(6, 182, 212, 0.2)'}`,
+                    }}>
+                      {String(Math.floor(timerTimeLeft / 60)).padStart(2, '0')}:{String(timerTimeLeft % 60).padStart(2, '0')}
+                    </span>
+                  ) : (
+                    <span style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: timerMode === 'focus' ? '#8b5cf6' : '#06b6d4',
+                      boxShadow: `0 0 6px ${timerMode === 'focus' ? '#8b5cf6' : '#06b6d4'}`,
+                    }} />
+                  )}
+                </>
               )}
             </motion.button>
           )
@@ -128,11 +171,11 @@ export default function Sidebar() {
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
         {!collapsed && (
           <div style={{
-            background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)',
-            borderRadius: 10, padding: '10px 12px', marginBottom: 10,
+            background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
+            borderRadius: 12, padding: '10px 12px', marginBottom: 10,
           }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#34d399' }}>🔒 100% Private</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3 }}>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 3 }}>
               All data stays local. Nothing sent online.
             </div>
           </div>
@@ -142,7 +185,7 @@ export default function Sidebar() {
           onClick={toggle}
           className="btn btn-ghost btn-sm"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{ width: '100%', justifyContent: 'center', padding: '8px' }}
+          style={{ width: '100%', justifyContent: 'center', padding: '8px', border: 'none' }}
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
           {!collapsed && <span style={{ fontSize: 11 }}>Collapse</span>}

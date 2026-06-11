@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Play, Pause, RotateCcw, SkipForward } from 'lucide-react'
 import { api } from '../api/client'
-import toast from 'react-hot-toast'
 
 const FOCUS_MIN  = 25
 const BREAK_MIN  = 5
@@ -10,93 +9,37 @@ const LONG_BREAK_MIN = 15
 const SESSIONS_BEFORE_LONG = 4
 const CATEGORIES = ['Work', 'Study', 'Personal', 'Exercise', 'Other']
 
-export default function Pomodoro() {
-  const [mode, setMode]         = useState('focus')   // 'focus' | 'break'
-  const [timeLeft, setTimeLeft] = useState(FOCUS_MIN * 60)
-  const [running, setRunning]   = useState(false)
-  const [sessions, setSessions] = useState(0)
-  const [task, setTask]         = useState('')
-  const [category, setCategory] = useState('Work')
+export default function Pomodoro({
+  mode,
+  timeLeft,
+  running,
+  sessions,
+  task,
+  category,
+  projectId,
+  setMode,
+  setTimeLeft,
+  setRunning,
+  setSessions,
+  setTask,
+  setCategory,
+  setProjectId,
+  reset,
+  skip,
+  switchMode
+}) {
   const [projects, setProjects] = useState([])
-  const [projectId, setProjectId] = useState('')
 
-  // Refs so the interval always reads latest state
-  const stateRef    = useRef({ mode, sessions, task, category, projectId })
-  const timerRef    = useRef(null)
-  const completedRef = useRef(false)
-
-  stateRef.current = { mode, sessions, task, category, projectId }
-
-  useEffect(() => { api.getProjects().then(setProjects).catch(() => {}) }, [])
+  useEffect(() => { 
+    api.getProjects().then(setProjects).catch(() => {}) 
+  }, [])
 
   const totalSecs = () => {
-    const { mode: m, sessions: s } = stateRef.current
-    if (m === 'focus') return FOCUS_MIN * 60
-    return (s > 0 && s % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60
+    if (mode === 'focus') return FOCUS_MIN * 60
+    return (sessions > 0 && sessions % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60
   }
 
   const pct = ((totalSecs() - timeLeft) / totalSecs()) * 100
-
-  const doComplete = () => {
-    const { mode: m, sessions: s, task: tk, category: cat, projectId: pid } = stateRef.current
-    if (m === 'focus') {
-      const newS = s + 1
-      setSessions(newS)
-      api.logWork({
-        duration_minutes: FOCUS_MIN,
-        description: tk || 'Pomodoro focus session',
-        category: cat || 'Work',
-        project_id: pid ? +pid : null,
-        date: new Date().toISOString().slice(0, 10),
-      }).catch(() => {})
-      toast.success(`🍅 Session ${newS} done! ${FOCUS_MIN}min logged to Work Hours.`)
-      const breakSecs = newS % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN * 60 : BREAK_MIN * 60
-      setMode('break')
-      setTimeLeft(breakSecs)
-    } else {
-      setMode('focus')
-      setTimeLeft(FOCUS_MIN * 60)
-      toast('☕ Break over — ready to focus?', { icon: '🎯' })
-    }
-  }
-
-  const doCompleteRef = useRef(doComplete)
-  doCompleteRef.current = doComplete
-
-  useEffect(() => {
-    if (!running) { clearInterval(timerRef.current); return }
-    completedRef.current = false
-    timerRef.current = setInterval(() => {
-      setTimeLeft(t => {
-        if (t <= 1) {
-          clearInterval(timerRef.current)
-          setRunning(false)
-          if (!completedRef.current) {
-            completedRef.current = true
-            setTimeout(() => doCompleteRef.current(), 10)
-          }
-          return 0
-        }
-        return t - 1
-      })
-    }, 1000)
-    return () => clearInterval(timerRef.current)
-  }, [running])
-
-  const switchMode = (m) => {
-    clearInterval(timerRef.current); setRunning(false)
-    setMode(m)
-    const { sessions: s } = stateRef.current
-    setTimeLeft(m === 'focus' ? FOCUS_MIN * 60 : (s > 0 && s % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60)
-  }
-
-  const reset = () => {
-    clearInterval(timerRef.current); setRunning(false)
-    setTimeLeft(mode === 'focus' ? FOCUS_MIN * 60 : BREAK_MIN * 60)
-  }
-
-  const skip = () => doCompleteRef.current()
-
   const mm = String(Math.floor(timeLeft / 60)).padStart(2, '0')
   const ss = String(timeLeft % 60).padStart(2, '0')
   const accent = mode === 'focus' ? '#7c3aed' : '#06b6d4'
@@ -112,7 +55,10 @@ export default function Pomodoro() {
 
       {/* Mode tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 36 }}>
-        {[['focus', '🎯 Focus', FOCUS_MIN], ['break', '☕ Break', BREAK_MIN]].map(([m, label, mins]) => (
+        {[
+          ['focus', '🎯 Focus', FOCUS_MIN],
+          ['break', '☕ Break', BREAK_MIN]
+        ].map(([m, label, mins]) => (
           <button key={m}
             className={`btn btn-sm ${mode === m ? 'btn-purple' : 'btn-ghost'}`}
             style={mode === m ? { background: `${accent}22`, borderColor: accent, color: accent } : {}}
@@ -135,7 +81,7 @@ export default function Pomodoro() {
                 style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }} />
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ fontSize: 58, fontWeight: 900, fontFamily: 'monospace', color: 'white', lineHeight: 1, letterSpacing: -3 }}>
+              <div style={{ fontSize: 58, fontWeight: 900, fontFamily: 'var(--font-mono)', color: 'white', lineHeight: 1, letterSpacing: -1 }}>
                 {mm}:{ss}
               </div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 8, textTransform: 'uppercase', letterSpacing: 3 }}>

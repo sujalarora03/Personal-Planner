@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Sparkles, Music, RefreshCw, X, Volume2, VolumeX } from 'lucide-react'
+import { 
+  Play, Pause, Sparkles, Music, RefreshCw, X, Volume2, VolumeX,
+  Search, CloudRain, Waves, Wind, Radio, Cpu, Download, CheckCircle, AlertTriangle
+} from 'lucide-react'
+import { api } from '../api/client'
+import toast from 'react-hot-toast'
+import ScrollReveal from '../components/ScrollReveal'
 
 const MOODS = [
   { emoji: '🎯', label: 'Focused',     value: 'deeply focused and in a flow state, need concentration music' },
@@ -26,7 +32,6 @@ const fmtTime = (s) => {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
-// Determine the best playback mode for a song
 const songMode = (song) => {
   if (!song) return null
   if (song.yt_found && song.audio_url) return 'youtube'
@@ -34,106 +39,315 @@ const songMode = (song) => {
   return null
 }
 
-export default function Relax() {
+export default function Relax({
+  globalSongs,
+  setGlobalSongs,
+  globalPlayingIdx,
+  setGlobalPlayingIdx,
+  globalIsPlaying,
+  globalCurrentTime,
+  globalDuration,
+  globalVolume,
+  handlePlayPause,
+  seekTo,
+  adjustVolume
+}) {
   // Picker
   const [selectedMood, setSelectedMood] = useState(null)
   const [customMood, setCustomMood]     = useState('')
   const [genres, setGenres]             = useState([])
   const [context, setContext]           = useState('')
-  const [model, setModel]               = useState('llama3.2')
+
+  // Search
+  const [searchQuery, setSearchQuery]   = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching]       = useState(false)
+
+  // Tabs
+  const [activeTab, setActiveTab]       = useState('ai') // 'ai' or 'search'
+
+  // Local AI Model status
+  const [llmStatus, setLlmStatus] = useState({
+    model_exists: false,
+    download: { status: 'idle', progress: 0, error_message: '' }
+  })
+  const [loadingLlm, setLoadingLlm] = useState(false)
+  const llmPollRef = useRef(null)
 
   // Results
   const [songs, setSongs]           = useState([])
   const [generating, setGenerating] = useState(false)
   const [error, setError]           = useState('')
 
-  // Player
-  const [playingIdx, setPlayingIdx]   = useState(null)
-  const [isPlaying, setIsPlaying]     = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration]       = useState(30)
-  const [volume, setVolume]           = useState(1)
+  // Local Synthesis Focus Sounds
+  const audioCtxRef = useRef(null)
+  const soundNodesRef = useRef({})
+  const [activeSounds, setActiveSounds] = useState({ rain: false, waves: false, white: false, brown: false })
+  const [soundVolumes, setSoundVolumes] = useState({ rain: 0.3, waves: 0.3, white: 0.2, brown: 0.2 })
 
-  const audioRef     = useRef(null)
-  const songsRef     = useRef([])
-  const idxRef       = useRef(null)
-  const startPlayRef = useRef(null)
-
-  songsRef.current = songs
-  idxRef.current   = playingIdx
-
-  // Boot audio element once (for iTunes 30s fallback)
-  useEffect(() => {
-    const audio = new Audio()
-    audioRef.current = audio
-    audio.volume = 1
-    audio.addEventListener('timeupdate',     () => setCurrentTime(audio.currentTime))
-    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration || 30))
-    audio.addEventListener('play',           () => setIsPlaying(true))
-    audio.addEventListener('pause',          () => setIsPlaying(false))
-    audio.addEventListener('ended', () => {
-      setIsPlaying(false)
-      setCurrentTime(0)
-      // Auto-advance to next playable track
-      const curr = idxRef.current
-      const list = songsRef.current
-      if (curr !== null) {
-        for (let i = curr + 1; i < list.length; i++) {
-          if (songMode(list[i])) { startPlayRef.current?.(i); return }
-        }
-      }
-      setPlayingIdx(null)
-    })
-    return () => { audio.pause(); audio.src = '' }
-  }, [])
-
-  const startPlay = (idx) => {
-    const audio = audioRef.current
-    const song  = songsRef.current[idx]
-    const mode  = songMode(song)
-    const url   = mode === 'youtube' ? song.audio_url : song?.preview_url
-    if (!audio || !url) return
-    audio.pause()
-    audio.src = url
-    audio.load()
-    audio.play().catch(() => {})
-    setPlayingIdx(idx)
-    setCurrentTime(0)
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+    }
+    return audioCtxRef.current
   }
-  startPlayRef.current = startPlay
 
-  const handlePlayPause = (idx) => {
-    const song = songs[idx]
-    if (!song) return
-    const mode = songMode(song)
-    if (!mode) return
-    const audio = audioRef.current
-    if (!audio) return
-    if (playingIdx === idx) {
-      isPlaying ? audio.pause() : audio.play().catch(() => {})
+  const createBrownNoiseBuffer = (ctx) => {
+    const bufferSize = ctx.sampleRate * 2
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    let lastOut = 0.0
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1
+      data[i] = (lastOut + (0.02 * white)) / 1.02
+      lastOut = data[i]
+      data[i] *= 3.5
+    }
+    return buffer
+  }
+
+  const createWhiteNoiseBuffer = (ctx) => {
+    const bufferSize = ctx.sampleRate * 2
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1
+    }
+    return buffer
+  }
+
+  const startSound = (type) => {
+    try {
+      const ctx = getAudioContext()
+      if (ctx.state === 'suspended') {
+        ctx.resume()
+      }
+
+      if (soundNodesRef.current[type]) {
+        stopSound(type)
+      }
+
+      const source = ctx.createBufferSource()
+      let noiseBuffer
+      if (type === 'brown') {
+        noiseBuffer = createBrownNoiseBuffer(ctx)
+      } else if (type === 'white') {
+        noiseBuffer = createWhiteNoiseBuffer(ctx)
+      } else {
+        noiseBuffer = createWhiteNoiseBuffer(ctx)
+      }
+
+      source.buffer = noiseBuffer
+      source.loop = true
+
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'lowpass'
+
+      const gainNode = ctx.createGain()
+      gainNode.gain.setValueAtTime(0, ctx.currentTime)
+      gainNode.gain.linearRampToValueAtTime(soundVolumes[type], ctx.currentTime + 1.0)
+
+      let lfo, lfoGain
+      if (type === 'rain') {
+        filter.frequency.setValueAtTime(1200, ctx.currentTime)
+        source.connect(filter)
+        filter.connect(gainNode)
+      } else if (type === 'waves') {
+        const brownBuffer = createBrownNoiseBuffer(ctx)
+        source.buffer = brownBuffer
+        filter.frequency.setValueAtTime(400, ctx.currentTime)
+
+        lfo = ctx.createOscillator()
+        lfo.type = 'sine'
+        lfo.frequency.setValueAtTime(0.08, ctx.currentTime)
+
+        lfoGain = ctx.createGain()
+        lfoGain.gain.setValueAtTime(soundVolumes[type] * 0.4, ctx.currentTime)
+
+        lfo.connect(lfoGain)
+        lfoGain.connect(gainNode.gain)
+        lfo.start()
+
+        source.connect(filter)
+        filter.connect(gainNode)
+      } else if (type === 'brown') {
+        filter.frequency.setValueAtTime(300, ctx.currentTime)
+        source.connect(filter)
+        filter.connect(gainNode)
+      } else {
+        source.connect(gainNode)
+      }
+
+      gainNode.connect(ctx.destination)
+      source.start()
+
+      soundNodesRef.current[type] = { source, gainNode, filter, lfo, lfoGain }
+      setActiveSounds(prev => ({ ...prev, [type]: true }))
+    } catch (_) {}
+  }
+
+  const stopSound = (type) => {
+    const nodeObj = soundNodesRef.current[type]
+    if (nodeObj) {
+      try {
+        nodeObj.source.stop()
+        if (nodeObj.lfo) nodeObj.lfo.stop()
+      } catch (_) {}
+      delete soundNodesRef.current[type]
+    }
+    setActiveSounds(prev => ({ ...prev, [type]: false }))
+  }
+
+  const toggleSound = (type) => {
+    if (activeSounds[type]) {
+      stopSound(type)
     } else {
-      startPlay(idx)
+      startSound(type)
     }
   }
 
-  const seekTo = (e, idx) => {
-    if (playingIdx !== idx || !audioRef.current || !duration) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    audioRef.current.currentTime = ((e.clientX - rect.left) / rect.width) * duration
+  const adjustSoundVolume = (type, vol) => {
+    setSoundVolumes(prev => ({ ...prev, [type]: vol }))
+    const nodeObj = soundNodesRef.current[type]
+    if (nodeObj && audioCtxRef.current) {
+      nodeObj.gainNode.gain.setValueAtTime(vol, audioCtxRef.current.currentTime)
+    }
+  }
+
+  // ── Local AI Model checks ─────────────────────────────────────
+
+  const loadLlmStatus = async () => {
+    setLoadingLlm(true)
+    try {
+      const status = await api.getLlmStatus()
+      setLlmStatus(status)
+      if (status.download?.status === 'downloading') {
+        startLlmPolling()
+      }
+    } catch (_) {}
+    finally {
+      setLoadingLlm(false)
+    }
+  }
+
+  const handleStartLlmDownload = async () => {
+    try {
+      await api.startLlmDownload()
+      toast.success('Downloading local AI model in background...')
+      startLlmPolling()
+    } catch (e) {
+      toast.error(`Download failed: ${e.message}`)
+    }
+  }
+
+  const startLlmPolling = () => {
+    if (llmPollRef.current) clearInterval(llmPollRef.current)
+    llmPollRef.current = setInterval(async () => {
+      try {
+        const status = await api.getLlmStatus()
+        setLlmStatus(status)
+        if (status.download?.status === 'completed' || status.model_exists) {
+          toast.success('Local AI Engine is ready!')
+          clearInterval(llmPollRef.current)
+        } else if (status.download?.status === 'error') {
+          toast.error(`Download failed: ${status.download.error_message}`)
+          clearInterval(llmPollRef.current)
+        }
+      } catch (_) {
+        clearInterval(llmPollRef.current)
+      }
+    }, 1500)
+  }
+
+  useEffect(() => {
+    loadLlmStatus()
+    return () => {
+      if (llmPollRef.current) clearInterval(llmPollRef.current)
+      // Cleanup soundscapes
+      Object.keys(soundNodesRef.current).forEach(type => {
+        try {
+          soundNodesRef.current[type].source.stop()
+          if (soundNodesRef.current[type].lfo) soundNodesRef.current[type].lfo.stop()
+        } catch (_) {}
+      })
+      soundNodesRef.current = {}
+    }
+  }, [])
+
+  // ── Song Actions ─────────────────────────────────────────────
+
+  const handlePlaySong = async (idx, songsList, setSongsList) => {
+    const song = songsList[idx]
+    if (!song) return
+
+    // If YouTube link is already resolved, play it instantly
+    if (song.yt_found && song.audio_url) {
+      handlePlayPause(idx, songsList)
+      return
+    }
+
+    // Set loading state for this specific song
+    const updated = [...songsList]
+    updated[idx] = { ...song, loading: true }
+    setSongsList(updated)
+
+    try {
+      const artist = song.artist || song.artist_name || ''
+      const title = song.title || song.track_name || ''
+      const res = await fetch(`/api/music/youtube?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)
+      const data = await res.json()
+
+      if (data.found && data.audio_url) {
+        const finalSongs = [...songsList]
+        finalSongs[idx] = {
+          ...song,
+          audio_url: data.audio_url,
+          video_id: data.video_id,
+          yt_found: true,
+          loading: false,
+          thumbnail: data.thumbnail || song.thumbnail
+        }
+        setSongsList(finalSongs)
+        handlePlayPause(idx, finalSongs)
+      } else if (song.preview_url) {
+        // Fallback to 30-sec iTunes preview
+        const finalSongs = [...songsList]
+        finalSongs[idx] = {
+          ...song,
+          loading: false,
+          itunes_found: true
+        }
+        setSongsList(finalSongs)
+        handlePlayPause(idx, finalSongs)
+        toast('YouTube audio unavailable — playing 30s preview fallback', { icon: '◑' })
+      } else {
+        const finalSongs = [...songsList]
+        finalSongs[idx] = { ...song, loading: false }
+        setSongsList(finalSongs)
+        toast.error("Could not resolve audio streams for this song.")
+      }
+    } catch (_) {
+      const finalSongs = [...songsList]
+      finalSongs[idx] = { ...song, loading: false }
+      setSongsList(finalSongs)
+      if (song.preview_url) {
+        handlePlayPause(idx, finalSongs)
+      } else {
+        toast.error("Connection error while searching audio streams.")
+      }
+    }
   }
 
   const toggleGenre = (g) =>
     setGenres(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])
 
   const activeMood  = selectedMood?.value || customMood.trim()
-  const progressPct = duration ? (currentTime / duration) * 100 : 0
 
   const getSuggestions = async () => {
     if (!activeMood || generating) return
-    const audio = audioRef.current
-    if (audio) { audio.pause(); audio.src = '' }
-    setPlayingIdx(null); setIsPlaying(false)
+    handlePlayPause(null) // Stop global playing
     setSongs([]); setError(''); setGenerating(true)
+    setActiveTab('ai')
 
     const ctxParts = []
     if (context.trim()) ctxParts.push(context.trim())
@@ -143,380 +357,481 @@ export default function Relax() {
       const res  = await fetch('/api/mood/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mood: activeMood, context: ctxParts.join('. '), model }),
+        body: JSON.stringify({ mood: activeMood, context: ctxParts.join('. ') }),
       })
       const data = await res.json()
-      if (data.error && !data.songs?.length) { setError(data.error); setGenerating(false); return }
+      if (data.error && !data.songs?.length) { 
+        setError(data.error)
+        setGenerating(false)
+        return 
+      }
 
+      // Songs loaded, but keep loading: true for individual lazy resolving
       const raw = (data.songs || []).slice(0, 8)
-      setSongs(raw.map(s => ({ ...s, loading: true })))
+      setSongs(raw.map(s => ({
+        ...s,
+        loading: false,
+        yt_found: false,
+        itunes_found: false
+      })))
 
-      // Fetch YouTube + iTunes in parallel for each song
+      // Pre-fetch iTunes previews silently for thumbnails & metadata
       raw.forEach(async (s, i) => {
         try {
-          const [ytRes, itunesRes] = await Promise.all([
-            fetch(`/api/music/youtube?artist=${encodeURIComponent(s.artist)}&title=${encodeURIComponent(s.title)}`).then(r => r.json()),
-            fetch(`/api/music/preview?artist=${encodeURIComponent(s.artist)}&title=${encodeURIComponent(s.title)}`).then(r => r.json()),
-          ])
-          setSongs(prev => {
-            const n = [...prev]
-            if (n[i]) n[i] = {
-              ...n[i],
-              // YouTube (audio stream via yt-dlp)
-              video_id:    ytRes.found ? ytRes.video_id  : null,
-              audio_url:   ytRes.found ? ytRes.audio_url : null,
-              channel:     ytRes.found ? ytRes.channel   : '',
-              yt_found:    !!ytRes.found && !!ytRes.audio_url,
-              watch_url:   ytRes.watch_url || null,
-              yt_duration: ytRes.duration  || null,
-              // iTunes
-              preview_url:  itunesRes.found ? itunesRes.preview_url  : null,
-              artwork_url:  itunesRes.found ? itunesRes.artwork_url  : null,
-              track_name:   itunesRes.track_name  || s.title,
-              artist_name:  itunesRes.artist_name || s.artist,
-              genre:        itunesRes.genre       || '',
-              itunes_found: !!itunesRes.found,
-              // Prefer iTunes album art (square, higher quality) for thumbnails
-              thumbnail: itunesRes.artwork_url || ytRes.thumbnail || null,
-              loading: false,
-            }
-            return n
-          })
-        } catch {
-          setSongs(prev => {
-            const n = [...prev]
-            if (n[i]) n[i] = { ...n[i], loading: false, yt_found: false, itunes_found: false }
-            return n
-          })
-        }
+          const itunesRes = await fetch(`/api/music/preview?artist=${encodeURIComponent(s.artist)}&title=${encodeURIComponent(s.title)}`).then(r => r.json())
+          if (itunesRes.found) {
+            setSongs(prev => {
+              const n = [...prev]
+              if (n[i]) n[i] = {
+                ...n[i],
+                preview_url:  itunesRes.preview_url,
+                artwork_url:  itunesRes.artwork_url,
+                track_name:   itunesRes.track_name,
+                artist_name:  itunesRes.artist_name,
+                genre:        itunesRes.genre,
+                itunes_found: true,
+                thumbnail:    itunesRes.artwork_url
+              }
+              return n
+            })
+          }
+        } catch (_) {}
       })
-    } catch (err) { setError(err.message) }
-    setGenerating(false)
+
+    } catch (e) {
+      setError('Could not connect to suggestion server.')
+    } finally {
+      setGenerating(false)
+    }
   }
 
-  const activeSong = playingIdx !== null ? songs[playingIdx] : null
-  const activeMode = songMode(activeSong)
+  const handleSearch = async (e) => {
+    if (e) e.preventDefault()
+    if (!searchQuery.trim() || searching) return
+    setSearching(true)
+    setActiveTab('search')
+    try {
+      const res = await fetch(`/api/music/search?q=${encodeURIComponent(searchQuery)}`)
+      const data = await res.json()
+      setSearchResults(data.results || [])
+    } catch (_) {
+      toast.error('Search failed.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const renderSongList = (list, setListState) => {
+    if (list.length === 0) {
+      return (
+        <div style={{ color: 'rgba(255,255,255,0.25)', fontSize: 13, textAlign: 'center', padding: '40px 0', border: '1px dashed rgba(255,255,255,0.05)', borderRadius: 12 }}>
+          <Music size={24} style={{ marginBottom: 8, opacity: 0.6 }} />
+          <div>No songs in list. Generate recommendations or search above.</div>
+        </div>
+      )
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {list.map((song, idx) => {
+          const active   = globalPlayingIdx === idx && globalSongs === list
+          const mode     = songMode(song)
+          const hasAudio = !!mode || (song.preview_url) || (!song.yt_found && !song.audio_url)
+          return (
+            <ScrollReveal key={idx} delay={idx * 0.04} duration={0.4}>
+              <div 
+                style={{
+                  borderRadius: 12, overflow: 'hidden',
+                  border: `1px solid ${active ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.05)'}`,
+                  background: active ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.02)',
+                  transition: 'border-color 0.2s, background 0.2s',
+                }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+
+                  {/* Album art / thumbnail */}
+                  <div style={{ width: 64, height: 64, flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
+                    {song.loading ? (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}>
+                        <RefreshCw size={16} className="spinner-ring" style={{ animation: 'spin 1s linear infinite' }} />
+                      </div>
+                    ) : song.thumbnail ? (
+                      <img src={song.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', background: `hsl(${idx * 43 + 220}deg 30% 15%)` }}>
+                        <Music size={18} color="rgba(255,255,255,0.3)" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Song info */}
+                  <div style={{ flex: 1, padding: '8px 14px', minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'white' }}>
+                      {song.track_name || song.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#a78bfa', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {song.artist_name || song.artist}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                      {song.loading ? (
+                        <span style={{ fontSize: 10, color: '#c084fc', fontWeight: 600 }}>Resolving YouTube stream...</span>
+                      ) : song.yt_found ? (
+                        <>
+                          <span style={{ fontSize: 9, fontWeight: 700, background: 'rgba(239,68,68,0.15)',
+                            color: '#f87171', borderRadius: 4, padding: '1px 5px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            ▶ YouTube
+                          </span>
+                          {song.yt_duration && (
+                            <span className="font-mono" style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                              {fmtTime(song.yt_duration)}
+                            </span>
+                          )}
+                        </>
+                      ) : song.itunes_found ? (
+                        <span style={{ fontSize: 9, fontWeight: 600, background: 'rgba(251,146,60,0.12)',
+                          color: '#fb923c', borderRadius: 4, padding: '1px 5px', border: '1px solid rgba(251,146,60,0.15)' }}>
+                          ◑ 30s Preview
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)' }}>Online stream available</span>
+                      )}
+                      {song.genre && !song.loading && (
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)' }}>· {song.genre}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Play button */}
+                  <div style={{ padding: '0 16px', flexShrink: 0 }}>
+                    {song.loading ? (
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <RefreshCw size={13} color="rgba(255,255,255,0.2)" style={{ animation: 'spin 1s linear infinite' }} />
+                      </div>
+                    ) : hasAudio ? (
+                      <button 
+                        onClick={() => handlePlaySong(idx, list, setListState)} 
+                        style={{
+                          width: 34, height: 34, borderRadius: '50%', border: 'none',
+                          background: active ? '#7c3aed' : (song.yt_found ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)'),
+                          color: 'white', cursor: 'pointer', display: 'flex',
+                          alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+                          boxShadow: active ? '0 0 12px rgba(124,58,237,0.4)' : 'none',
+                        }}>
+                        {active && globalIsPlaying
+                          ? <Pause size={13} />
+                          : <Play size={13} style={{ marginLeft: 2 }} />
+                        }
+                      </button>
+                    ) : (
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.02)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.25 }}>
+                        <Music size={13} color="white" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* iTunes seek bar — only for active iTunes track */}
+                {active && mode === 'itunes' && (
+                  <div onClick={seekTo}
+                    style={{ height: 3, background: 'rgba(255,255,255,0.06)', cursor: 'pointer' }}>
+                    <div style={{ height: '100%', background: '#7c3aed',
+                      width: `${(globalCurrentTime / globalDuration) * 100}%`, transition: 'width 0.15s linear' }} />
+                  </div>
+                )}
+              </div>
+            </ScrollReveal>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
-    <div className="page" style={{ paddingBottom: activeSong ? (activeMode === 'youtube' ? 215 : 80) : 0 }}>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Relax 🎧</h1>
-          <p className="page-sub">Pick your mood · AI picks songs · Full songs via YouTube · 30s previews via iTunes</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
-          <span>Model:</span>
-          <input value={model} onChange={e => setModel(e.target.value)} style={{ width: 130, fontSize: 12 }} />
-        </div>
+    <div className="page">
+      <div style={{ marginBottom: 24 }}>
+        <h1 className="page-title">Relax & Focus Music</h1>
+        <p className="page-sub">Custom AI recommendations and organic focus soundscapes</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '290px 1fr', gap: 22, alignItems: 'start' }}>
-
-        {/* Left panel */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-          <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} className="glass" style={{ padding: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 32, alignItems: 'flex-start' }}>
+        
+        {/* Left config column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          
+          {/* Direct Search Card */}
+          <div className="glass" style={{ padding: 20 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>
-              How are you feeling?
+              Direct Track Search
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {MOODS.map(m => {
-                const active = selectedMood?.label === m.label
-                return (
-                  <button key={m.label} onClick={() => { setSelectedMood(m); setCustomMood('') }}
-                    style={{
-                      padding: '7px 10px', borderRadius: 8, border: '1px solid',
-                      textAlign: 'left', fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
-                      background:   active ? 'rgba(124,58,237,0.22)' : 'rgba(255,255,255,0.04)',
-                      borderColor:  active ? 'rgba(124,58,237,0.5)'  : 'rgba(255,255,255,0.07)',
-                      color:        active ? 'white'                  : 'rgba(255,255,255,0.55)',
-                    }}>
-                    {m.emoji} {m.label}
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8 }}>
+              <input 
+                placeholder="Search artist, song, album..." 
+                value={searchQuery} 
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ flex: 1, fontSize: 13 }}
+              />
+              <button type="submit" className="btn btn-purple btn-shimmer" style={{ padding: '0 12px' }} disabled={searching}>
+                {searching ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />}
+              </button>
+            </form>
+          </div>
+
+          {/* Mood Recommendations Card */}
+          <div className="glass" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)' }}>
+                AI Recommendations
+              </div>
+              <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4, color: 'rgba(255,255,255,0.4)', fontWeight: 700 }}>
+                LOCAL QWEN 2.5
+              </span>
+            </div>
+
+            {/* If model missing, show in-app download panel */}
+            {!llmStatus.model_exists ? (
+              <div style={{ background: 'rgba(239,68,68,0.03)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 12, padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#fca5a5', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                  <Cpu size={15} /> Local AI Offline
+                </div>
+                <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5, marginBottom: 12 }}>
+                  The 2.0 GB local AI model must be downloaded to enable mood recommendation playlists.
+                </p>
+
+                {llmStatus.download?.status === 'idle' && (
+                  <button className="btn btn-purple btn-sm btn-shimmer" style={{ width: '100%' }} onClick={handleStartLlmDownload}>
+                    <Download size={12} /> Download Model (2.0 GB)
                   </button>
-                )
-              })}
-            </div>
-            <input value={customMood} onChange={e => { setCustomMood(e.target.value); setSelectedMood(null) }}
-              placeholder="Or describe your mood…"
-              style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, marginTop: 10 }} />
-          </motion.div>
+                )}
 
-          <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: 0.05 }}
-            className="glass" style={{ padding: 16 }}>
+                {llmStatus.download?.status === 'downloading' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 4 }}>
+                      <span style={{ color: 'rgba(255,255,255,0.4)' }}>Downloading...</span>
+                      <span style={{ fontWeight: 700, color: '#c084fc' }}>{llmStatus.download.progress}%</span>
+                    </div>
+                    <div className="progress-bar" style={{ height: 4 }}>
+                      <div className="progress-fill" style={{ width: `${llmStatus.download.progress}%`, background: 'var(--purple)' }} />
+                    </div>
+                  </div>
+                )}
+
+                {llmStatus.download?.status === 'error' && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#fca5a5', marginBottom: 6 }}>Download failed.</div>
+                    <button className="btn btn-ghost btn-sm" style={{ width: '100%', fontSize: 10, padding: '4px 8px' }} onClick={handleStartLlmDownload}>
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 16 }}>
+                  {MOODS.map(m => {
+                    const sel = selectedMood?.label === m.label
+                    return (
+                      <button 
+                        key={m.label}
+                        onClick={() => { setSelectedMood(m); setCustomMood('') }}
+                        title={m.label}
+                        style={{
+                          fontSize: 20, height: 38, borderRadius: 10,
+                          background: sel ? 'var(--purple-glow)' : 'rgba(255,255,255,0.03)',
+                          boxShadow: sel ? '0 0 12px var(--purple-glow)' : 'none',
+                          border: sel ? '1px solid var(--purple-border)' : '1px solid rgba(255,255,255,0.04)',
+                          cursor: 'pointer', transition: 'all 0.15s',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}
+                      >
+                        {m.emoji}
+                      </button>
+                    )
+                  })}
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <input 
+                    placeholder="Or type custom activity..." 
+                    value={customMood} 
+                    onChange={e => { setCustomMood(e.target.value); setSelectedMood(null) }}
+                    style={{ fontSize: 13 }}
+                  />
+
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)' }}>
+                    Filter by Genres
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {GENRES.map(g => {
+                      const active = genres.includes(g)
+                      return (
+                        <button 
+                          key={g} 
+                          onClick={() => toggleGenre(g)}
+                          style={{
+                            padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: 'none',
+                            background: active ? 'rgba(6,182,212,0.18)' : 'rgba(255,255,255,0.03)',
+                            color: active ? '#22d3ee' : 'rgba(255,255,255,0.5)',
+                            border: active ? '1px solid rgba(6,182,212,0.35)' : '1px solid rgba(255,255,255,0.04)',
+                            cursor: 'pointer', transition: 'all 0.1s'
+                          }}
+                        >
+                          {g}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+                    Specific context (Optional)
+                  </div>
+                  <input 
+                    placeholder="e.g. coding, reading, gym..." 
+                    value={context} 
+                    onChange={e => setContext(e.target.value)}
+                    style={{ fontSize: 13 }}
+                  />
+
+                  <button 
+                    onClick={getSuggestions} 
+                    className="btn btn-purple btn-shimmer" 
+                    style={{ width: '100%', marginTop: 6 }}
+                    disabled={generating || !activeMood}
+                  >
+                    {generating ? 'Finding...' : <><Sparkles size={14} /> Recommend</>}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Local Focus Sounds */}
+          <div className="glass" style={{ padding: 20 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>
-              Genre <span style={{ fontWeight: 400, fontSize: 10 }}>(optional)</span>
+              Focus Soundscapes (Offline)
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {GENRES.map(g => {
-                const active = genres.includes(g)
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { type: 'rain', icon: CloudRain, label: 'Rain Forest' },
+                { type: 'waves', icon: Waves, label: 'Ocean Waves' },
+                { type: 'white', icon: Radio, label: 'White Noise' },
+                { type: 'brown', icon: Wind, label: 'Brownian Wind' },
+              ].map(({ type, icon: Icon, label }) => {
+                const active = activeSounds[type]
                 return (
-                  <button key={g} onClick={() => toggleGenre(g)} style={{
-                    padding: '3px 9px', borderRadius: 6, border: '1px solid', fontSize: 11,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    background:  active ? 'rgba(6,182,212,0.16)' : 'rgba(255,255,255,0.04)',
-                    borderColor: active ? 'rgba(6,182,212,0.4)'  : 'rgba(255,255,255,0.07)',
-                    color:       active ? '#22d3ee'               : 'rgba(255,255,255,0.45)',
-                  }}>{g}</button>
+                  <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.02)', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)' }}>
+                    <button 
+                      onClick={() => toggleSound(type)}
+                      style={{
+                        width: 28, height: 28, borderRadius: '50%', border: 'none',
+                        background: active ? 'var(--purple)' : 'rgba(255,255,255,0.08)',
+                        color: 'white', cursor: 'pointer', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', padding: 7, transition: 'all 0.15s'
+                      }}
+                    >
+                      <Icon size={14} />
+                    </button>
+                    <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: active ? 'white' : 'rgba(255,255,255,0.6)' }}>{label}</div>
+                    
+                    {/* Increased width to 90px for improved usability */}
+                    <input 
+                      type="range" min={0} max={1} step={0.05} 
+                      value={soundVolumes[type]} 
+                      onChange={e => adjustSoundVolume(type, parseFloat(e.target.value))}
+                      style={{ width: 90, accentColor: 'var(--purple)', height: 4, cursor: 'pointer' }}
+                    />
+                  </div>
                 )
               })}
             </div>
-          </motion.div>
-
-          <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: 0.1 }}
-            className="glass" style={{ padding: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>
-              Anything else?
-            </div>
-            <input value={context} onChange={e => setContext(e.target.value)}
-              placeholder='e.g. "no vocals, instrumental only"'
-              style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, marginBottom: 12 }} />
-            <button className="btn btn-purple" style={{ width: '100%', justifyContent: 'center' }}
-              onClick={getSuggestions} disabled={generating || !activeMood}>
-              {generating
-                ? <><RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite', marginRight: 6 }} />Finding songs…</>
-                : <><Sparkles size={13} style={{ marginRight: 6 }} />Get My Playlist</>}
-            </button>
-          </motion.div>
+          </div>
         </div>
 
-        {/* Right panel — song list */}
+        {/* Right panel — song list & tabs */}
         <div>
+          {/* Tab switcher */}
+          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16, gap: 24 }}>
+            <button 
+              onClick={() => setActiveTab('ai')}
+              style={{
+                background: 'none', border: 'none', borderBottom: activeTab === 'ai' ? '2px solid #8b5cf6' : '2px solid transparent',
+                color: activeTab === 'ai' ? 'white' : 'rgba(255,255,255,0.4)',
+                padding: '8px 4px', cursor: 'pointer', fontWeight: 700, fontSize: 14,
+                transition: 'all 0.15s'
+              }}
+            >
+              AI Suggestions {songs.length > 0 && `(${songs.length})`}
+            </button>
+            <button 
+              onClick={() => setActiveTab('search')}
+              style={{
+                background: 'none', border: 'none', borderBottom: activeTab === 'search' ? '2px solid #8b5cf6' : '2px solid transparent',
+                color: activeTab === 'search' ? 'white' : 'rgba(255,255,255,0.4)',
+                padding: '8px 4px', cursor: 'pointer', fontWeight: 700, fontSize: 14,
+                transition: 'all 0.15s'
+              }}
+            >
+              Search Results {searchResults.length > 0 && `(${searchResults.length})`}
+            </button>
+          </div>
+
           <AnimatePresence mode="wait">
             {error && (
               <motion.div key="err" initial={{ opacity:0 }} animate={{ opacity:1 }}
                 style={{ padding: '14px 18px', borderRadius: 12, marginBottom: 14,
                   background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
-                  color: '#fca5a5', fontSize: 14 }}>
+                  color: '#fca5a5', fontSize: 13 }}>
                 ⚠ {error}
               </motion.div>
             )}
 
-            {songs.length === 0 && !generating && !error && (
-              <motion.div key="empty" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
-                className="glass" style={{ padding: '60px 40px', textAlign: 'center', color: 'rgba(255,255,255,0.2)' }}>
-                <div style={{ fontSize: 56, marginBottom: 14 }}>🎧</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>Pick a mood, get a playlist</div>
-                <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-                  AI suggests songs → full songs stream from YouTube<br />
-                  30-second previews via iTunes as fallback<br />
-                  No account or login needed
-                </div>
+            {generating && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, gap: 12 }}>
+                <RefreshCw size={24} className="spinner-ring" style={{ animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Generating mood suggestions using Qwen 2.5...</span>
+              </div>
+            )}
+
+            {!generating && activeTab === 'ai' && (
+              <motion.div key="ai-list" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
+                {songs.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                    {selectedMood && (
+                      <span style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.25)',
+                        color: '#a78bfa', borderRadius: 8, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>
+                        {selectedMood.emoji} {selectedMood.label}
+                      </span>
+                    )}
+                    {genres.slice(0, 4).map(g => (
+                      <span key={g} style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)',
+                        color: '#22d3ee', borderRadius: 6, padding: '3px 8px', fontSize: 11 }}>{g}</span>
+                    ))}
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginLeft: 'auto' }}>
+                      Click any song to play — streams full audio dynamically
+                    </span>
+                  </div>
+                )}
+                {renderSongList(songs, setSongs)}
               </motion.div>
             )}
 
-            {(songs.length > 0 || generating) && (
-              <motion.div key="list" initial={{ opacity:0 }} animate={{ opacity:1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {selectedMood && (
-                    <span style={{ background: 'rgba(124,58,237,0.18)', border: '1px solid rgba(124,58,237,0.35)',
-                      color: '#a78bfa', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
-                      {selectedMood.emoji} {selectedMood.label}
-                    </span>
-                  )}
-                  {genres.slice(0, 4).map(g => (
-                    <span key={g} style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)',
-                      color: '#22d3ee', borderRadius: 6, padding: '3px 8px', fontSize: 11 }}>{g}</span>
-                  ))}
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>
-                    {songs.filter(s => s.yt_found).length} YouTube · {songs.filter(s => !s.yt_found && s.itunes_found).length} iTunes
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {songs.map((song, idx) => {
-                    const active   = playingIdx === idx
-                    const mode     = songMode(song)
-                    const hasAudio = !!mode
-                    return (
-                      <motion.div key={idx}
-                        initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay: idx * 0.05 }}
-                        style={{
-                          borderRadius: 12, overflow: 'hidden',
-                          border: `1px solid ${active ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.07)'}`,
-                          background: active ? 'rgba(124,58,237,0.1)' : 'rgba(255,255,255,0.03)',
-                          transition: 'border-color 0.2s, background 0.2s',
-                        }}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-
-                          {/* Album art / thumbnail */}
-                          <div style={{ width: 72, height: 72, flexShrink: 0, overflow: 'hidden' }}>
-                            {song.loading ? (
-                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', background: `hsl(${idx * 43 + 220}deg 35% 18%)`,
-                                animation: 'pulse 1.4s ease-in-out infinite' }}>
-                                <Music size={18} color="rgba(255,255,255,0.25)" />
-                              </div>
-                            ) : song.thumbnail ? (
-                              <img src={song.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            ) : (
-                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', background: `hsl(${idx * 43 + 220}deg 35% 18%)` }}>
-                                <Music size={18} color="rgba(255,255,255,0.35)" />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Song info */}
-                          <div style={{ flex: 1, padding: '10px 14px', minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {song.track_name || song.title}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {song.artist_name || song.artist}
-                            </div>
-                            <div style={{ display: 'flex', gap: 5, marginTop: 4, alignItems: 'center' }}>
-                              {song.loading ? (
-                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Loading…</span>
-                              ) : song.yt_found ? (
-                                <>
-                                  <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(239,68,68,0.15)',
-                                    color: '#f87171', borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(239,68,68,0.25)' }}>
-                                    ▶ YouTube
-                                  </span>
-                                  {song.yt_duration && (
-                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>
-                                      {fmtTime(song.yt_duration)}
-                                    </span>
-                                  )}
-                                </>
-                              ) : song.itunes_found ? (
-                                <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(251,146,60,0.12)',
-                                  color: '#fb923c', borderRadius: 4, padding: '1px 6px', border: '1px solid rgba(251,146,60,0.2)' }}>
-                                  ◑ 30s Preview
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>No audio found</span>
-                              )}
-                              {song.genre && !song.loading && (
-                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>{song.genre}</span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Play button */}
-                          <div style={{ padding: '0 16px', flexShrink: 0 }}>
-                            {song.loading ? (
-                              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <RefreshCw size={13} color="rgba(255,255,255,0.25)" style={{ animation: 'spin 1s linear infinite' }} />
-                              </div>
-                            ) : hasAudio ? (
-                              <button onClick={() => handlePlayPause(idx)} style={{
-                                width: 36, height: 36, borderRadius: '50%', border: 'none',
-                                background: active ? '#7c3aed' : (mode === 'youtube' ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.1)'),
-                                color: 'white', cursor: 'pointer', display: 'flex',
-                                alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
-                                boxShadow: active ? '0 0 18px rgba(124,58,237,0.5)' : 'none',
-                              }}>
-                                {active && isPlaying
-                                  ? <Pause size={14} />
-                                  : <Play size={14} style={{ marginLeft: 2 }} />
-                                }
-                              </button>
-                            ) : (
-                              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.3 }}>
-                                <Music size={14} color="white" />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* iTunes seek bar — only for active iTunes track */}
-                        {active && mode === 'itunes' && (
-                          <div onClick={e => seekTo(e, idx)}
-                            style={{ height: 3, background: 'rgba(255,255,255,0.08)', cursor: 'pointer' }}>
-                            <div style={{ height: '100%', background: '#7c3aed',
-                              width: `${progressPct}%`, transition: 'width 0.15s linear' }} />
-                          </div>
-                        )}
-                      </motion.div>
-                    )
-                  })}
-                </div>
+            {!generating && activeTab === 'search' && (
+              <motion.div key="search-list" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
+                {searching ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, gap: 12 }}>
+                    <RefreshCw size={24} className="spinner-ring" style={{ animation: 'spin 1s linear infinite' }} />
+                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Searching iTunes library...</span>
+                  </div>
+                ) : (
+                  renderSongList(searchResults, setSearchResults)
+                )}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
-
-      {/* ── Persistent player bar ── */}
-      <AnimatePresence>
-        {activeSong && (
-          <motion.div
-            key={playingIdx}
-            initial={{ y: 80 }} animate={{ y: 0 }} exit={{ y: 80 }}
-            style={{
-              position: 'fixed', bottom: 0, left: 220, right: 0, zIndex: 30,
-              background: 'rgba(6,6,18,0.98)', backdropFilter: 'blur(20px)',
-              borderTop: '1px solid rgba(255,255,255,0.09)',
-              height: 68, display: 'flex',
-            }}>
-            <>
-              {activeSong.thumbnail
-                ? <img src={activeSong.thumbnail} alt=""
-                    style={{ width: 68, height: 68, objectFit: 'cover', flexShrink: 0 }} />
-                : <div style={{ width: 68, height: 68, background: 'rgba(124,58,237,0.3)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Music size={18} color="white" />
-                  </div>
-              }
-              <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 14, padding: '0 20px' }}>
-                <div style={{ minWidth: 0, flex: '0 0 175px' }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {activeSong.track_name || activeSong.title}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#a78bfa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {activeSong.artist_name || activeSong.artist}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
-                    {activeMode === 'youtube' ? '▶ YouTube Audio' : '◑ 30s iTunes Preview'}
-                  </div>
-                </div>
-                <button onClick={() => handlePlayPause(playingIdx)} style={{
-                    width: 34, height: 34, borderRadius: '50%', border: 'none',
-                    background: '#7c3aed', color: 'white', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {isPlaying ? <Pause size={13} /> : <Play size={13} style={{ marginLeft: 2 }} />}
-                  </button>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', minWidth: 28 }}>{fmtTime(currentTime)}</span>
-                    <div onClick={e => seekTo(e, playingIdx)}
-                      style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, cursor: 'pointer' }}>
-                      <div style={{ height: '100%', background: '#7c3aed', borderRadius: 2,
-                        width: `${progressPct}%`, transition: 'width 0.15s linear' }} />
-                    </div>
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', minWidth: 28 }}>{fmtTime(duration)}</span>
-                  </div>
-                  {/* Volume control */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => {
-                      const v = volume === 0 ? 1 : 0
-                      setVolume(v)
-                      if (audioRef.current) audioRef.current.volume = v
-                    }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 0, display: 'flex' }}>
-                      {volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                    </button>
-                    <input type="range" min={0} max={1} step={0.02} value={volume}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value)
-                        setVolume(v)
-                        if (audioRef.current) audioRef.current.volume = v
-                      }}
-                      style={{ width: 72, accentColor: '#7c3aed', cursor: 'pointer', height: 3, borderRadius: 2 }}
-                    />
-                  </div>
-                  <button onClick={() => setPlayingIdx(null)} style={{
-                    background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
-                    cursor: 'pointer', display: 'flex', padding: 4 }}>
-                    <X size={15} />
-                  </button>
-                </div>
-              </>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
