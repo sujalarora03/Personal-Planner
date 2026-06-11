@@ -155,18 +155,21 @@ export default function Relax({
       } else if (type === 'waves') {
         const brownBuffer = createBrownNoiseBuffer(ctx)
         source.buffer = brownBuffer
-        filter.frequency.setValueAtTime(400, ctx.currentTime)
+        filter.type = 'lowpass'
+        filter.Q.setValueAtTime(2.0, ctx.currentTime)
 
         lfo = ctx.createOscillator()
         lfo.type = 'sine'
         lfo.frequency.setValueAtTime(0.08, ctx.currentTime)
 
         lfoGain = ctx.createGain()
-        lfoGain.gain.setValueAtTime(soundVolumes[type] * 0.4, ctx.currentTime)
+        lfoGain.gain.setValueAtTime(200, ctx.currentTime)
 
         lfo.connect(lfoGain)
-        lfoGain.connect(gainNode.gain)
+        lfoGain.connect(filter.frequency)
         lfo.start()
+
+        filter.frequency.setValueAtTime(350, ctx.currentTime)
 
         source.connect(filter)
         filter.connect(gainNode)
@@ -315,24 +318,27 @@ export default function Relax({
         finalSongs[idx] = {
           ...song,
           loading: false,
-          itunes_found: true
+          itunes_found: true,
+          yt_failed: true
         }
         setSongsList(finalSongs)
         handlePlayPause(idx, finalSongs)
         toast('YouTube audio unavailable — playing 30s preview fallback', { icon: '◑' })
       } else {
         const finalSongs = [...songsList]
-        finalSongs[idx] = { ...song, loading: false }
+        finalSongs[idx] = { ...song, loading: false, yt_failed: true }
         setSongsList(finalSongs)
         toast.error("Could not resolve audio streams for this song.")
       }
     } catch (_) {
       const finalSongs = [...songsList]
-      finalSongs[idx] = { ...song, loading: false }
-      setSongsList(finalSongs)
       if (song.preview_url) {
+        finalSongs[idx] = { ...song, loading: false, yt_failed: true }
+        setSongsList(finalSongs)
         handlePlayPause(idx, finalSongs)
       } else {
+        finalSongs[idx] = { ...song, loading: false }
+        setSongsList(finalSongs)
         toast.error("Connection error while searching audio streams.")
       }
     }
@@ -421,6 +427,65 @@ export default function Relax({
     }
   }
 
+  const getSuggestionsFromSearch = async () => {
+    if (!searchQuery.trim() || generating) return
+    handlePlayPause(null)
+    setSongs([]); setError(''); setGenerating(true)
+    setActiveTab('ai')
+
+    try {
+      const res = await fetch('/api/mood/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          mood: `songs similar to and inspired by: ${searchQuery}`, 
+          context: 'Focus on tracks with a similar vibe, artist style, or musical genre.' 
+        }),
+      })
+      const data = await res.json()
+      if (data.error && !data.songs?.length) { 
+        setError(data.error)
+        setGenerating(false)
+        return 
+      }
+
+      const raw = (data.songs || []).slice(0, 8)
+      setSongs(raw.map(s => ({
+        ...s,
+        loading: false,
+        yt_found: false,
+        itunes_found: false
+      })))
+
+      raw.forEach(async (s, i) => {
+        try {
+          const itunesRes = await fetch(`/api/music/preview?artist=${encodeURIComponent(s.artist)}&title=${encodeURIComponent(s.title)}`).then(r => r.json())
+          if (itunesRes.found) {
+            setSongs(prev => {
+              const n = [...prev]
+              if (n[i]) n[i] = {
+                ...n[i],
+                preview_url:  itunesRes.preview_url,
+                artwork_url:  itunesRes.artwork_url,
+                track_name:   itunesRes.track_name,
+                artist_name:  itunesRes.artist_name,
+                genre:        itunesRes.genre,
+                itunes_found: true,
+                thumbnail:    itunesRes.artwork_url
+              }
+              return n
+            })
+          }
+        } catch (_) {}
+      })
+
+    } catch (e) {
+      setError('Could not connect to suggestion server.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const renderSongList = (list, setListState) => {
     if (list.length === 0) {
       return (
@@ -488,7 +553,7 @@ export default function Relax({
                             </span>
                           )}
                         </>
-                      ) : song.itunes_found ? (
+                      ) : (song.itunes_found && song.yt_failed) ? (
                         <span style={{ fontSize: 9, fontWeight: 600, background: 'rgba(251,146,60,0.12)',
                           color: '#fb923c', borderRadius: 4, padding: '1px 5px', border: '1px solid rgba(251,146,60,0.15)' }}>
                           ◑ 30s Preview
@@ -566,16 +631,29 @@ export default function Relax({
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>
               Direct Track Search
             </div>
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8 }}>
-              <input 
-                placeholder="Search artist, song, album..." 
-                value={searchQuery} 
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ flex: 1, fontSize: 13 }}
-              />
-              <button type="submit" className="btn btn-purple btn-shimmer" style={{ padding: '0 12px' }} disabled={searching}>
-                {searching ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />}
-              </button>
+            <form onSubmit={handleSearch} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input 
+                  placeholder="Search artist, song, album..." 
+                  value={searchQuery} 
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+                <button type="submit" className="btn btn-purple btn-shimmer" style={{ padding: '0 12px' }} disabled={searching}>
+                  {searching ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />}
+                </button>
+              </div>
+              {llmStatus.model_exists && searchQuery.trim() && (
+                <button 
+                  type="button" 
+                  onClick={getSuggestionsFromSearch} 
+                  className="btn btn-ghost btn-sm" 
+                  style={{ width: '100%', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px 0' }}
+                  disabled={generating}
+                >
+                  <Sparkles size={12} color="#a78bfa" /> Get AI Suggestions for "{searchQuery}"
+                </button>
+              )}
             </form>
           </div>
 

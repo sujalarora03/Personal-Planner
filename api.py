@@ -387,7 +387,9 @@ def get_skills():
 
 
 class DownloadRequest(BaseModel):
-    download_url: str
+    download_url: Optional[str] = None
+    installer_url: Optional[str] = None
+    version: Optional[str] = None
 
 class ModelRequest(BaseModel):
     name: str
@@ -423,9 +425,14 @@ def check_update():
 @app.post("/api/update/download")
 def trigger_download(body: DownloadRequest):
     from updater import start_download_thread
-    start_download_thread(body.download_url)
+    url = body.installer_url or body.download_url
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing download_url or installer_url")
+    version = body.version or "0.0.0"
+    start_download_thread(url, version)
     return {"ok": True}
 
+@app.get("/api/update/progress")
 @app.get("/api/update/download/status")
 def download_status():
     from updater import get_download_status
@@ -654,12 +661,18 @@ def weekly_review():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _FALLBACK_QUOTES = [
-    "You didn't come this far to only come this far.",
-    "Make it happen. Shock everyone.",
-    "Build the life you can't stop thinking about.",
-    "Stop waiting for the right moment. Create it.",
-    "Be the main character, not a side quest.",
-    "One year from now you'll wish you started today.",
+    {"quote": "You didn't come this far to only come this far.", "author": "Unknown"},
+    {"quote": "Make it happen. Shock everyone.", "author": "Unknown"},
+    {"quote": "The secret of getting ahead is getting started.", "author": "Mark Twain"},
+    {"quote": "It does not matter how slowly you go as long as you do not stop.", "author": "Confucius"},
+    {"quote": "Our greatest glory is not in never falling, but in rising every time we fall.", "author": "Confucius"},
+    {"quote": "The only way to do great work is to love what you do.", "author": "Steve Jobs"},
+    {"quote": "In the middle of every difficulty lies opportunity.", "author": "Albert Einstein"},
+    {"quote": "The future belongs to those who believe in the beauty of their dreams.", "author": "Eleanor Roosevelt"},
+    {"quote": "It always seems impossible until it's done.", "author": "Nelson Mandela"},
+    {"quote": "Success is not final, failure is not fatal: it is the courage to continue that counts.", "author": "Winston Churchill"},
+    {"quote": "The harder I work, the luckier I get.", "author": "Samuel Goldwyn"},
+    {"quote": "Don't watch the clock; do what it does. Keep going.", "author": "Sam Levenson"},
 ]
 
 @app.get("/api/quote")
@@ -668,52 +681,46 @@ def get_daily_quote():
     try:
         llm = get_llama_model()
         if not llm:
-            return {"quote": fallback, "source": "fallback"}
+            return {**fallback, "source": "fallback"}
 
         p = db.get_profile() or {}
-        first_name = (p.get("name") or "").split(" ")[0]
         role = p.get("role") or ""
-        context_bits = []
-        if first_name:
-            context_bits.append(f"The user's first name is {first_name}.")
-        if role:
-            context_bits.append(f"They work as {role}.")
-        context = " ".join(context_bits)
+        context = f"The person is a {role}." if role else ""
 
         resp = llm.create_chat_completion(
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "You generate ultra-short motivational one-liners. "
-                        "Max 18 words. Output ONLY the quote text."
+                        "You return a famous motivational quote with its real author. "
+                        "Output ONLY in this exact format, nothing else: "
+                        'QUOTE: <quote text> | AUTHOR: <author name>'
                     ),
                 },
                 {
                     "role": "user",
-                    "content": f"Give me one motivational line for today. {context}",
+                    "content": f"Give me an inspiring quote for a productive person. {context} Pick a well-known quote from a famous thinker, leader, or philosopher.",
                 },
             ],
-            max_tokens=64,
-            temperature=0.8
+            max_tokens=96,
+            temperature=0.85
         )
-        quote = resp["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-        if 5 < len(quote) < 220:
-            return {"quote": quote, "source": "local_llm", "model": MODEL_FILENAME}
+        raw = resp["choices"][0]["message"]["content"].strip()
+        # Parse "QUOTE: ... | AUTHOR: ..."
+        if "QUOTE:" in raw and "AUTHOR:" in raw:
+            try:
+                q_part, a_part = raw.split("|", 1)
+                quote_text = q_part.replace("QUOTE:", "").strip().strip('"').strip("'")
+                author_text = a_part.replace("AUTHOR:", "").strip().strip('"').strip("'")
+                if 5 < len(quote_text) < 280 and 1 < len(author_text) < 80:
+                    return {"quote": quote_text, "author": author_text, "source": "local_llm"}
+            except Exception:
+                pass
     except Exception:
         pass
 
-    return {"quote": fallback, "source": "fallback"}
+    return {**fallback, "source": "fallback"}
 
-
-@app.get("/api/ollama/status")
-def ollama_status():
-    """Fallback status check for Ollama UI routes — maps to embedded model status."""
-    exists = os.path.exists(MODEL_PATH)
-    return {
-        "running": True,
-        "models": [MODEL_FILENAME] if exists else []
-    }
 
 @app.get("/api/llm/status")
 def get_llm_status():
@@ -999,10 +1006,8 @@ log_work_hours(duration_minutes, description?, category?, date?)
   date: YYYY-MM-DD (default today)
 
 query_data(sql)
-  Run a read-only SELECT on the planner database.
   Tables: tasks, projects, work_sessions, targets, courses, resumes
 """
-
 _SYSTEM_PROMPT = """You are an intelligent personal productivity assistant embedded in a desktop planner app. You have full knowledge of the user's professional profile, career history, skills, tasks, projects, courses, and goals shown in the context below. Use this to give personalised, relevant answers.
 
 MANDATORY RULES — follow without exception:
@@ -1018,6 +1023,28 @@ MANDATORY RULES — follow without exception:
 Current planner snapshot:
 {context}
 """
+
+@app.get("/api/ollama/status")
+def ollama_status():
+    """Check Ollama service status and return list of installed models."""
+    try:
+        import requests as _requests
+        resp = _requests.get("http://localhost:11434/api/tags", timeout=3)
+        if resp.status_code == 200:
+            models = [m["name"] for m in resp.json().get("models", [])]
+            return {
+                "running": True,
+                "models": models
+            }
+    except Exception:
+        pass
+
+    # Fallback to embedded model status
+    exists = os.path.exists(MODEL_PATH)
+    return {
+        "running": False,
+        "models": [MODEL_FILENAME] if exists else []
+    }
 
 import re as _re2
 import requests as _req
@@ -1142,49 +1169,83 @@ def chat_stream(body: ChatStreamRequest):
             text = _re2.sub(r"</?tool_\w+>", "", text)
             return text
 
-        for _round in range(MAX_TOOL_ROUNDS):
-            # Call Ollama
+        is_embedded = (body.model == MODEL_FILENAME) or (not body.model)
+        if not is_embedded:
             try:
-                resp = _req.post(
-                    "http://localhost:11434/api/chat",
-                    json={"model": body.model, "messages": conversation, "stream": True},
-                    stream=True, timeout=120,
-                )
-                resp.raise_for_status()
-            except _req.exceptions.ConnectionError:
-                msg = "\n⚠ Could not connect to Ollama. Run: ollama serve"
-                rendered_parts.append(msg)
-                yield msg
-                return
-            except _req.exceptions.HTTPError as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if status == 404:
-                    msg = f"\n⚠ Model '{body.model}' not found. Run: ollama pull {body.model}"
-                else:
-                    msg = f"\n⚠ Ollama error {status}"
-                rendered_parts.append(msg)
-                yield msg
-                return
-            except Exception as e:
-                msg = f"\n⚠ Error: {e}"
-                rendered_parts.append(msg)
-                yield msg
-                return
+                import requests as _requests
+                _requests.get("http://localhost:11434/api/tags", timeout=1)
+            except Exception:
+                is_embedded = True
+
+        for _round in range(MAX_TOOL_ROUNDS):
+            if is_embedded:
+                try:
+                    llm = get_llama_model()
+                    if not llm:
+                        msg = "\n⚠ Local AI model not found. Please download it in the Relax tab or Settings."
+                        rendered_parts.append(msg)
+                        yield msg
+                        return
+                    resp_stream = llm.create_chat_completion(
+                        messages=conversation,
+                        stream=True,
+                        temperature=0.7,
+                        max_tokens=1024
+                    )
+                except Exception as e:
+                    msg = f"\n⚠ Embedded LLM error: {e}"
+                    rendered_parts.append(msg)
+                    yield msg
+                    return
+            else:
+                # Call Ollama
+                try:
+                    resp = _req.post(
+                        "http://localhost:11434/api/chat",
+                        json={"model": body.model, "messages": conversation, "stream": True},
+                        stream=True, timeout=120,
+                    )
+                    resp.raise_for_status()
+                except _req.exceptions.ConnectionError:
+                    msg = "\n⚠ Could not connect to Ollama. Run: ollama serve"
+                    rendered_parts.append(msg)
+                    yield msg
+                    return
+                except _req.exceptions.HTTPError as e:
+                    status = getattr(getattr(e, "response", None), "status_code", None)
+                    if status == 404:
+                        msg = f"\n⚠ Model '{body.model}' not found. Run: ollama pull {body.model}"
+                    else:
+                        msg = f"\n⚠ Ollama error {status}"
+                    rendered_parts.append(msg)
+                    yield msg
+                    return
+                except Exception as e:
+                    msg = f"\n⚠ Error: {e}"
+                    rendered_parts.append(msg)
+                    yield msg
+                    return
 
             # Collect complete model response, then render a cleaned version.
             full_text = []
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                try:
-                    data  = _j.loads(line)
-                    chunk = data.get("message", {}).get("content", "")
-                    if chunk:
-                        full_text.append(chunk)
-                    if data.get("done"):
-                        break
-                except Exception:
-                    pass
+            if is_embedded:
+                for chunk in resp_stream:
+                    delta = chunk["choices"][0]["delta"]
+                    if "content" in delta:
+                        full_text.append(delta["content"])
+            else:
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data  = _j.loads(line)
+                        chunk = data.get("message", {}).get("content", "")
+                        if chunk:
+                            full_text.append(chunk)
+                        if data.get("done"):
+                            break
+                    except Exception:
+                        pass
 
             assistant_text = "".join(full_text)
             conversation.append({"role": "assistant", "content": assistant_text})
@@ -1331,12 +1392,42 @@ from fastapi.responses import StreamingResponse
 import json as _json
 
 SKILL_KEYWORDS = {
-    "Programming Languages": ["Python","Java","JavaScript","TypeScript","C++","C#","Go","Rust","SQL","HTML","CSS","Bash","Kotlin","Swift","Scala","R","PHP"],
-    "Frameworks & Libraries": ["React","Angular","Vue","Django","Flask","FastAPI","Spring","Node.js","Next.js","TensorFlow","PyTorch","scikit-learn","Pandas","NumPy","Bootstrap","Tailwind","GraphQL"],
-    "Databases": ["MySQL","PostgreSQL","SQLite","Oracle","MongoDB","Redis","Cassandra","DynamoDB","Elasticsearch","Firebase"],
-    "Cloud & DevOps": ["AWS","Azure","GCP","Docker","Kubernetes","Jenkins","Terraform","Ansible","GitHub Actions","Linux","CI/CD","Nginx","Helm"],
-    "Tools & Platforms": ["Git","Jira","Agile","Scrum","REST API","Microservices","Kafka","Postman","Swagger","Figma","Notion"],
-    "Data & AI": ["Machine Learning","Deep Learning","NLP","Computer Vision","Data Science","ETL","Spark","Tableau","Power BI","LangChain","Generative AI","MLOps"],
+    "Programming Languages": [
+        "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "Go", "Rust",
+        "SQL", "HTML", "CSS", "Bash", "Shell", "Kotlin", "Swift", "Scala",
+        "Ruby", "PHP", "MATLAB", "Perl", "Dart", "Haskell", "Lua", "Objective-C"
+    ],
+    "Frameworks & Libraries": [
+        "React", "Angular", "Vue", "Django", "Flask", "FastAPI", "Spring",
+        "Node.js", "Next.js", "Express", "TensorFlow", "PyTorch", "Keras",
+        "scikit-learn", "Pandas", "NumPy", "Bootstrap", "Tailwind", "GraphQL",
+        "Svelte", "Laravel", "Rails", "ASP.NET", "Hibernate", "jQuery",
+        "Hugging Face", "LangChain", "OpenCV", "NLTK", "spaCy"
+    ],
+    "Databases": [
+        "MySQL", "PostgreSQL", "SQLite", "Oracle", "MongoDB", "Redis",
+        "Cassandra", "DynamoDB", "Elasticsearch", "Firebase", "BigQuery",
+        "Snowflake", "Redshift", "Neo4j", "InfluxDB", "MariaDB", "CockroachDB"
+    ],
+    "Cloud & DevOps": [
+        "AWS", "Azure", "GCP", "Google Cloud", "Docker", "Kubernetes",
+        "Jenkins", "Terraform", "Ansible", "GitHub Actions", "Linux",
+        "CI/CD", "Nginx", "Helm", "GitLab", "CircleCI", "Prometheus",
+        "Grafana", "EKS", "ECS", "CloudFormation", "Pulumi", "ArgoCD"
+    ],
+    "Tools & Platforms": [
+        "Git", "Jira", "Agile", "Scrum", "REST API", "Microservices",
+        "Kafka", "Postman", "Swagger", "Figma", "Notion", "Confluence",
+        "RabbitMQ", "gRPC", "OpenAPI", "Slack", "VS Code", "IntelliJ",
+        "Jupyter", "Databricks", "Airflow", "dbt", "Tableau", "Power BI"
+    ],
+    "Data & AI": [
+        "Machine Learning", "Deep Learning", "NLP", "Computer Vision",
+        "Data Science", "ETL", "Spark", "Hadoop", "MLOps", "Generative AI",
+        "Large Language Models", "LLM", "Data Engineering", "Data Analysis",
+        "Statistical Modeling", "A/B Testing", "Feature Engineering",
+        "Reinforcement Learning", "RAG", "Vector Database", "Embeddings"
+    ],
 }
 
 ANALYSIS_PROMPTS = {
@@ -1368,11 +1459,16 @@ def _extract_text_from_bytes(filename: str, content: bytes) -> str:
     else:
         return content.decode('utf-8', errors='ignore')
 
+
 def _keyword_skills(text: str) -> dict:
-    tl = text.lower()
     result = {}
     for cat, kws in SKILL_KEYWORDS.items():
-        found = [kw for kw in kws if kw.lower() in tl]
+        found = []
+        for kw in kws:
+            # Word-boundary matching prevents 'C' matching 'CSS', 'Go' matching 'Google' etc.
+            pattern = _re.escape(kw)
+            if _re.search(r'\b' + pattern + r'\b', text, _re.IGNORECASE):
+                found.append(kw)
         if found:
             result[cat] = found
     return result
@@ -1423,6 +1519,49 @@ def analyze_resume(body: AnalyzeRequest):
             yield f"\n⚠ Error: {e}"
 
     return StreamingResponse(stream(), media_type="text/plain")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEEDBACK — stored locally in USER_DIR/feedback.json
+# (Email delivery handled externally via Google Form — see About page)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FEEDBACK_FILE = os.path.join(USER_DIR, "feedback.json")
+
+class FeedbackRequest(BaseModel):
+    type: str = "general"
+    name: Optional[str] = None
+    message: str
+
+@app.post("/api/feedback")
+def submit_feedback(body: FeedbackRequest):
+    if not body.message.strip():
+        raise HTTPException(400, "Message must not be empty")
+    entry = {
+        "id": int(datetime.utcnow().timestamp() * 1000),
+        "type": body.type,
+        "name": (body.name or "").strip() or None,
+        "message": body.message.strip()[:2000],
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    try:
+        existing = []
+        if os.path.exists(FEEDBACK_FILE):
+            with open(FEEDBACK_FILE, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        existing.append(entry)
+        with open(FEEDBACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        raise HTTPException(500, f"Could not save feedback: {e}")
+    return {"ok": True, "id": entry["id"]}
+
+@app.get("/api/feedback")
+def get_feedback():
+    if not os.path.exists(FEEDBACK_FILE):
+        return []
+    with open(FEEDBACK_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

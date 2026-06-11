@@ -22,6 +22,7 @@ import Habits     from './pages/Habits'
 import Notes      from './pages/Notes'
 import Planner    from './pages/Planner'
 import Updates    from './pages/Updates'
+import About      from './pages/About'
 
 const pageVariants = {
   initial: { opacity: 0, scale: 0.97, y: 10 },
@@ -117,6 +118,7 @@ function AnimatedRoutes({
             />
           } />
           <Route path="/updates"    element={<Updates />} />
+          <Route path="/about"     element={<About />} />
           <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
       </motion.div>

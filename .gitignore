@@ -65,3 +65,5 @@ desktop.ini
 *.sqlite3
 logs/
 *.log
+models/
+tmp/

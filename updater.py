@@ -125,3 +125,24 @@ def run_installer_and_exit(installer_path: str) -> None:
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     os._exit(0)
+
+
+def start_download_thread(installer_url: str, version: str) -> None:
+    """Start the installer download in a background thread."""
+    threading.Thread(target=download_installer, args=(installer_url, version), daemon=True).start()
+
+
+def get_download_status() -> dict:
+    """Retrieve the current download status."""
+    return get_download_state()
+
+
+def launch_installer() -> bool:
+    """Launch the downloaded installer in a separate thread/process."""
+    state = get_download_state()
+    path = state.get("path")
+    if not path or not os.path.exists(path):
+        return False
+    threading.Thread(target=run_installer_and_exit, args=(path,), daemon=True).start()
+    return True
+

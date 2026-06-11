@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Trash2, X } from 'lucide-react'
 import { api } from '../api/client'
@@ -145,6 +145,7 @@ export default function AI() {
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [model, setModel]       = useState('llama3.2')
+  const [availableModels, setAvailableModels] = useState([])
   const [ctx, setCtx]           = useState(true)
   const [ollamaOk, setOllamaOk] = useState(null)   // null = checking, true/false = result
   const [bannerDismissed, setBannerDismissed] = useState(false)
@@ -161,7 +162,13 @@ export default function AI() {
     }).catch(() => {})
 
     api.ollamaStatus()
-      .then(s => setOllamaOk(s?.running === true))
+      .then(s => {
+        setOllamaOk(s?.running === true)
+        if (s?.models && s.models.length > 0) {
+          setAvailableModels(s.models)
+          setModel(s.models[0])
+        }
+      })
       .catch(() => setOllamaOk(false))
   }, [])
 
@@ -234,11 +241,45 @@ export default function AI() {
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <div>
               <h1 className="page-title">AI Assistant</h1>
-              <p className="page-sub">Powered by Ollama (local, private) — knows your profile & career</p>
+              <p className="page-sub">
+                {ollamaOk 
+                  ? "Powered by Ollama (local, private) — knows your profile & career" 
+                  : availableModels.length > 0 
+                    ? "Powered by Qwen 2.5 (local, private) — knows your profile & career" 
+                    : "Local AI Offline — download the local model or start Ollama to enable"}
+              </p>
             </div>
             <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-              <input value={model} onChange={e => setModel(e.target.value)}
-                style={{ width:160 }} placeholder="Model name" />
+              {availableModels.length > 0 ? (
+                <select 
+                  value={model} 
+                  onChange={e => setModel(e.target.value)}
+                  style={{ 
+                    width: 180, 
+                    background: 'rgba(255,255,255,0.05)', 
+                    border: '1px solid rgba(255,255,255,0.15)', 
+                    color: 'white', 
+                    borderRadius: 8, 
+                    padding: '6px 10px',
+                    fontSize: 13,
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {availableModels.map(m => (
+                    <option key={m} value={m} style={{ background: '#111827', color: 'white' }}>
+                      {m.endsWith('.gguf') ? 'Qwen 2.5 (Embedded)' : m}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input 
+                  value={model} 
+                  onChange={e => setModel(e.target.value)}
+                  style={{ width:160 }} 
+                  placeholder="Model name" 
+                />
+              )}
               <button className="btn btn-ghost btn-sm" onClick={clearChat}><Trash2 size={14}/> Clear</button>
             </div>
           </div>

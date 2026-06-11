@@ -104,4 +104,8 @@ export const api = {
 
   // Weekly review
   getWeeklyReview: (model) => req('GET', '/review/weekly' + (model ? `?model=${model}` : '')),
+
+  // Feedback
+  submitFeedback: (body) => req('POST', '/feedback', body),
+  getFeedback: () => req('GET', '/feedback'),
 }

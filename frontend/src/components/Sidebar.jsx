@@ -6,7 +6,7 @@ import {
   Home, LayoutDashboard, CheckSquare, Clock, Rocket,
   Target, BookOpen, GraduationCap, Bot, User, Headphones,
   ChevronLeft, ChevronRight, Timer, CheckCircle2, NotebookPen, CalendarDays,
-  ArrowUpCircle,
+  ArrowUpCircle, Heart,
 } from 'lucide-react'
 
 const NAV = [
@@ -26,6 +26,7 @@ const NAV = [
   { to: '/ai',         icon: Bot,            label: 'AI Assistant' },
   { to: '/relax',      icon: Headphones,     label: 'Relax' },
   { to: '/updates',    icon: ArrowUpCircle,  label: 'Updates & Help' },
+  { to: '/about',      icon: Heart,          label: 'About & Feedback' },
 ]
 
 const STORAGE_KEY = 'pp_sidebar_collapsed'
@@ -51,7 +52,9 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
   const W = collapsed ? 60 : 220
 
   return (
-    <aside style={{
+    <aside
+      data-collapsed={collapsed ? 'true' : 'false'}
+      style={{
       width: W,
       minWidth: W,
       height: '100vh',
@@ -89,7 +92,7 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
                 <span style={{
                   background: 'rgba(139,92,246,0.2)', color: '#c084fc',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v0.8.0</span>
+                }}>v0.8.2</span>
               </div>
             </div>
           )}
@@ -122,7 +125,7 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
                     inset: 0,
                     background: 'rgba(139, 92, 246, 0.12)',
                     borderRadius: 12,
-                    borderLeft: '3px solid #8b5cf6',
+                    borderLeft: collapsed ? 'none' : '3px solid #8b5cf6',
                     zIndex: -1,
                   }}
                   transition={{ type: 'spring', stiffness: 380, damping: 30 }}
