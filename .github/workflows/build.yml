@@ -3,7 +3,7 @@ name: Build & Release Installer
 on:
   push:
     tags:
-      - "v*"          # trigger on tags like v0.7.0, v0.8.0, etc.
+      - "v*"          # trigger on tags like v0.8.0, v0.9.0, etc.
 
 permissions:
   contents: write     # needed to create GitHub Releases
@@ -18,10 +18,10 @@ jobs:
         uses: actions/checkout@v4
 
       # ── 2. Set up Python ────────────────────────────────────────────
-      - name: Set up Python 3.13
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"   # 3.11 has better pre-built wheel support
 
       # ── 3. Set up Node.js ───────────────────────────────────────────
       - name: Set up Node.js 20
@@ -29,33 +29,22 @@ jobs:
         with:
           node-version: "20"
 
-      # ── 4. Install Python dependencies + PyInstaller ────────────────
-      - name: Install Python dependencies
-        working-directory: .
-        run: pip install -r requirements.txt pyinstaller --quiet --upgrade
+      # ── 4. Install Python dependencies ──────────────────────────────
+      - name: Install Python dependencies (excluding llama-cpp-python)
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --quiet
 
-      # ── 5. Build React frontend ─────────────────────────────────────
+      # ── 5. Install PyInstaller ───────────────────────────────────────
+      - name: Install PyInstaller
+        run: pip install pyinstaller --quiet --upgrade
+
+      # ── 6. Build React frontend ─────────────────────────────────────
       - name: Build React frontend
         working-directory: frontend
         run: |
           npm install --prefer-offline --no-audit --no-fund
           npm run build
-
-      # ── 6. Download Ollama installer ────────────────────────────────
-      - name: Download Ollama installer
-        working-directory: .
-        shell: pwsh
-        run: |
-          $ProgressPreference = 'SilentlyContinue'
-          try {
-            Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' `
-              -OutFile 'OllamaSetup.exe' -UseBasicParsing
-            Write-Host "Ollama downloaded OK."
-          } catch {
-            Write-Host "Ollama download failed: $($_.Exception.Message)"
-            Write-Host "Creating placeholder..."
-            "placeholder" | Out-File OllamaSetup.exe
-          }
 
       # ── 7. Bundle with PyInstaller ──────────────────────────────────
       - name: PyInstaller bundle
@@ -89,8 +78,8 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"          # e.g. v0.7.0
-          $ver = $tag.TrimStart('v')               # e.g. 0.7.0
+          $tag = "${{ github.ref_name }}"          # e.g. v0.8.0
+          $ver = $tag.TrimStart('v')               # e.g. 0.8.0
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
           echo "ver=$ver" >> $env:GITHUB_OUTPUT
 
@@ -101,18 +90,26 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Personal Planner v${{ steps.version.outputs.ver }} BETA"
           body: |
-            ## Personal Planner v${{ steps.version.outputs.ver }}
+            ## 🗓️ Personal Planner v${{ steps.version.outputs.ver }} BETA
 
-            ### Install
+            ### ⚡ What's New in v${{ steps.version.outputs.ver }}
+            - Apple-style glassmorphism UI with animated orbs & cursor parallax
+            - Revamped Relax tab — search & stream any song directly
+            - New 3D app logo & branding
+            - Improved performance and stability
+
+            ### 📦 Install
             1. Download **PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe** below
-            2. Run it — no admin rights required
-            3. Optionally install Ollama for AI features (offered during setup)
+            2. Run it — Windows may show a SmartScreen warning, click **More info → Run anyway**
+            3. The app installs to your user folder (no admin rights required)
 
-            ### What's included
-            - FastAPI backend (Python)
-            - React frontend (pre-built)
-            - Ollama AI engine installer (optional, ~150 MB)
+            ### 🔄 Already installed?
+            The app will prompt you to update automatically. Just open it and accept the update.
+
+            ### 💻 System Requirements
+            - Windows 10 or later (64-bit)
+            - ~200 MB disk space
           draft: false
-          prerelease: false
+          prerelease: true
           files: |
             Output/PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe
