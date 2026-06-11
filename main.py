@@ -177,6 +177,7 @@ class PersonalPlannerApp:
             width=1280,
             height=780,
             min_size=(960, 620),
+            text_select=True,
         )
         self.window.events.closing += self._on_closing
 
@@ -254,6 +255,7 @@ class PersonalPlannerApp:
             html=html,
             width=700,
             height=460,
+            text_select=True,
         )
         webview.start(debug=False)
 
