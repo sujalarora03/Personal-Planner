@@ -84,7 +84,7 @@ export default function Updates() {
       try {
         const state = await api.downloadUpdateStatus()
         setDownloadState(state)
-        if (state.status === 'completed') {
+        if (state.status === 'completed' || state.status === 'ready') {
           toast.success('Download complete! Ready to install.')
           clearInterval(updatePollRef.current)
         } else if (state.status === 'error') {
@@ -202,7 +202,7 @@ export default function Updates() {
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.04)', marginBottom: 20 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Installed Version</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>v0.8.3</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>v0.8.4</div>
               </div>
               <button 
                 className="btn btn-ghost" 
@@ -253,7 +253,7 @@ export default function Updates() {
                         </div>
                       )}
 
-                      {downloadState.status === 'completed' && (
+                      {(downloadState.status === 'completed' || downloadState.status === 'ready') && (
                         <button className="btn btn-purple btn-shimmer" style={{ width: '100%', background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 4px 15px rgba(16,185,129,0.3)' }} onClick={handleInstallUpdate}>
                           <Play size={14} /> Launch Installer & Restart App
                         </button>

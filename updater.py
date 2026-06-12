@@ -70,7 +70,7 @@ def check_for_update() -> dict:
 
 
 # ── Download state shared between download thread and API endpoints ────────────
-_dl_state: dict = {"status": "idle", "progress": 0, "path": None, "error": None}
+_dl_state: dict = {"status": "idle", "progress": 0, "path": None, "error": None, "error_message": None}
 _dl_lock = threading.Lock()
 
 
@@ -104,24 +104,37 @@ def download_installer(installer_url: str, version: str) -> None:
                             _dl_state["progress"] = pct
 
         with _dl_lock:
-            _dl_state.update({"status": "ready", "progress": 100, "path": dest})
+            _dl_state.update({"status": "completed", "progress": 100, "path": dest})
 
     except Exception as exc:
         with _dl_lock:
-            _dl_state.update({"status": "error", "error": str(exc)})
+            _dl_state.update({"status": "error", "error": str(exc), "error_message": str(exc)})
 
 
 def run_installer_and_exit(installer_path: str) -> None:
     """Run the installer silently then exit this process.
     Inno Setup /VERYSILENT installs over the existing version without prompts.
     A 2-second delay gives FastAPI time to return the HTTP response first.
+    We launch cmd.exe with a ping delay so that this process can exit fully,
+    preventing file locks, and then restart the app after the installer finishes.
     """
     import subprocess
     import time
     time.sleep(2)
+    
+    log_path = os.path.join(tempfile.gettempdir(), "pp_update.log")
+    
+    # If the app is frozen (built with PyInstaller), we want to restart it after installation
+    if getattr(sys, 'frozen', False):
+        app_exe = sys.executable
+        # Use ping for delay to avoid timeout command stdin redirection issues
+        cmd = f'ping 127.0.0.1 -n 4 > nul && "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}" && start "" "{app_exe}"'
+    else:
+        # Development mode
+        cmd = f'ping 127.0.0.1 -n 4 > nul && "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"'
+        
     subprocess.Popen(
-        [installer_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
-         "/LOG=" + os.path.join(tempfile.gettempdir(), "pp_update.log")],
+        ["cmd.exe", "/c", cmd],
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     os._exit(0)
