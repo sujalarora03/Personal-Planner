@@ -68,9 +68,9 @@ export default function Updates() {
   }
 
   const handleStartDownload = async () => {
-    if (!updateInfo?.download_url) return
+    if (!updateInfo?.installer_url) return
     try {
-      await api.downloadUpdate(updateInfo.download_url)
+      await api.downloadUpdate(updateInfo.installer_url, updateInfo.latest)
       toast.success('Downloading update in background...')
       startUpdatePolling()
     } catch (e) {
@@ -202,7 +202,7 @@ export default function Updates() {
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.04)', marginBottom: 20 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Installed Version</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>v0.8.5</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>v0.8.6</div>
               </div>
               <button 
                 className="btn btn-ghost" 

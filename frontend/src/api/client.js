@@ -70,7 +70,7 @@ export const api = {
 
   // App updates
   checkUpdate: () => req('GET', '/update/check'),
-  downloadUpdate: (downloadUrl) => req('POST', '/update/download', { download_url: downloadUrl }),
+  downloadUpdate: (installerUrl, version) => req('POST', '/update/download', { installer_url: installerUrl, version }),
   downloadUpdateStatus: () => req('GET', '/update/download/status'),
   installUpdate: () => req('POST', '/update/install'),
 
