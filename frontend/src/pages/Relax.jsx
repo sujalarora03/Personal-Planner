@@ -295,8 +295,8 @@ export default function Relax({
     setSongsList(updated)
 
     try {
-      const artist = song.artist || song.artist_name || ''
-      const title = song.title || song.track_name || ''
+      const artist = song.artist_name || song.artist || ''
+      const title = song.track_name || song.title || ''
       const res = await fetch(`/api/music/youtube?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)
       const data = await res.json()
 

@@ -768,8 +768,10 @@ def mood_suggest(body: MoodRequest):
         "CRITICAL REQUIREMENTS:\n"
         "- Suggest exactly 8 songs.\n"
         "- Every song MUST be a real, well-known, existing track. NEVER make up artists, bands, or titles.\n"
+        "- Keep the artist name and song title canonical, clean, and simple for search engines. Do NOT include featured artists in the 'artist' field (e.g. use 'Coldplay' instead of 'Coldplay feat. Beyoncé') and do NOT include extra version descriptions/remixes in the 'title' field unless essential.\n"
         "- Every song MUST match the listener's mood and strictly adhere to the preferred genres if specified. "
-        "For example, if preferred genres lists 'Lo-fi', you must ONLY suggest actual lo-fi tracks. If no genre is specified, be diverse."
+        "For example, if preferred genres lists 'Lo-fi', you must ONLY suggest actual lo-fi tracks. If no genre is specified, be diverse.\n"
+        "- Double check that the song is actually by the artist suggested."
     )
     prompt = f"{name_part}{ctx_part}Mood: {body.mood}"
 
@@ -787,8 +789,15 @@ def mood_suggest(body: MoodRequest):
             max_tokens=512
         )
         content = resp["choices"][0]["message"]["content"].strip()
-        # Strip markdown fences if present
-        content = _re3.sub(r"```[a-z]*\n?", "", content).strip("`").strip()
+        
+        # Extract the JSON array from the LLM output (handles conversational preamble/postamble)
+        json_match = _re3.search(r"(\[.*\])", content, _re3.DOTALL)
+        if json_match:
+            content = json_match.group(1)
+        else:
+            # Strip markdown fences if present
+            content = _re3.sub(r"```[a-z]*\n?", "", content).strip("`").strip()
+            
         songs   = _j.loads(content)
         if isinstance(songs, list):
             return {"songs": [{"artist": s.get("artist",""), "title": s.get("title","")} for s in songs[:8]]}
