@@ -853,6 +853,14 @@ function AppShell() {
               pomodoroTask={pomodoroTask}
               pomodoroCategory={pomodoroCategory}
               pomodoroProjectId={pomodoroProjectId}
+              focusMins={focusMins}
+              breakMins={breakMins}
+              longBreakMins={longBreakMins}
+              updateFocusMins={updateFocusMins}
+              updateBreakMins={updateBreakMins}
+              updateLongBreakMins={updateLongBreakMins}
+              startPip={startPip}
+              pipActive={!!pipWindow}
               setPomodoroMode={setPomodoroMode}
               setPomodoroTimeLeft={setPomodoroTimeLeft}
               setPomodoroRunning={setPomodoroRunning}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Play, Pause, RotateCcw, SkipForward, Tv } from 'lucide-react'
 import { api } from '../api/client'
@@ -34,6 +34,36 @@ export default function Pomodoro({
   switchMode
 }) {
   const [projects, setProjects] = useState([])
+  // Local draft state for the number inputs — lets user type freely without NaN commits
+  const [draftFocus, setDraftFocus] = useState(String(focusMins))
+  const [draftBreak, setDraftBreak] = useState(String(breakMins))
+  const [draftLong,  setDraftLong]  = useState(String(longBreakMins))
+
+  // Keep drafts in sync when parent values change externally (e.g. on first load)
+  const prevFocus = useRef(focusMins)
+  const prevBreak = useRef(breakMins)
+  const prevLong  = useRef(longBreakMins)
+  useEffect(() => {
+    if (prevFocus.current !== focusMins) { setDraftFocus(String(focusMins)); prevFocus.current = focusMins }
+    if (prevBreak.current !== breakMins) { setDraftBreak(String(breakMins)); prevBreak.current = breakMins }
+    if (prevLong.current  !== longBreakMins) { setDraftLong(String(longBreakMins));  prevLong.current  = longBreakMins }
+  }, [focusMins, breakMins, longBreakMins])
+
+  const commitFocus = () => {
+    const v = Math.max(1, Math.min(180, parseInt(draftFocus) || focusMins))
+    setDraftFocus(String(v))
+    updateFocusMins(v)
+  }
+  const commitBreak = () => {
+    const v = Math.max(1, Math.min(60, parseInt(draftBreak) || breakMins))
+    setDraftBreak(String(v))
+    updateBreakMins(v)
+  }
+  const commitLong = () => {
+    const v = Math.max(1, Math.min(120, parseInt(draftLong) || longBreakMins))
+    setDraftLong(String(v))
+    updateLongBreakMins(v)
+  }
 
   useEffect(() => { 
     api.getProjects().then(setProjects).catch(() => {}) 
@@ -55,7 +85,7 @@ export default function Pomodoro({
     <div className="page">
       <div style={{ marginBottom: 24 }}>
         <h1 className="page-title">Focus Timer</h1>
-        <p className="page-sub">{sessions} session{sessions !== 1 ? 's' : ''} completed · {sessions * focusMins} min logged today</p>
+        <p className="page-sub">{sessions} session{sessions !== 1 ? 's' : ''} completed · {sessions * (focusMins || 25)} min logged today</p>
       </div>
 
       {/* Mode tabs */}
@@ -174,8 +204,10 @@ export default function Pomodoro({
                   type="number" 
                   min={1} 
                   max={180} 
-                  value={focusMins} 
-                  onChange={e => updateFocusMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  value={draftFocus} 
+                  onChange={e => setDraftFocus(e.target.value)}
+                  onBlur={commitFocus}
+                  onKeyDown={e => e.key === 'Enter' && commitFocus()}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
                 />
               </div>
@@ -185,8 +217,10 @@ export default function Pomodoro({
                   type="number" 
                   min={1} 
                   max={60} 
-                  value={breakMins} 
-                  onChange={e => updateBreakMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  value={draftBreak}
+                  onChange={e => setDraftBreak(e.target.value)}
+                  onBlur={commitBreak}
+                  onKeyDown={e => e.key === 'Enter' && commitBreak()}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
                 />
               </div>
@@ -196,8 +230,10 @@ export default function Pomodoro({
                   type="number" 
                   min={1} 
                   max={120} 
-                  value={longBreakMins} 
-                  onChange={e => updateLongBreakMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  value={draftLong}
+                  onChange={e => setDraftLong(e.target.value)}
+                  onBlur={commitLong}
+                  onKeyDown={e => e.key === 'Enter' && commitLong()}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
                 />
               </div>
