@@ -91,7 +91,7 @@ export default function Home() {
             <span style={{
               background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)',
               color: '#a78bfa', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 700,
-            }}>v{version || '0.8.10'} BETA</span>
+            }}>v{version || '0.8.11'} BETA</span>
           </div>
         </motion.div>
 
@@ -105,7 +105,8 @@ export default function Home() {
           {/* Quote card */}
           <motion.div variants={item} className="glass" style={{
             padding: '24px 28px',
-            borderColor: 'rgba(124,58,237,0.2)',
+            borderColor: 'rgba(124,58,237,0.15)',
+            borderLeft: '4px solid var(--accent, #7c3aed)',
             background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(99,102,241,0.04))',
             gridColumn: '1 / -1',
             position: 'relative', overflow: 'hidden',
@@ -115,22 +116,37 @@ export default function Home() {
               background: 'radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 70%)',
               borderRadius: '50%', pointerEvents: 'none',
             }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Sparkles size={13} color="#7c3aed" />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 1 }}>Today's Inspiration</span>
+                <Sparkles size={13} color="var(--accent, #7c3aed)" />
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent, #7c3aed)', textTransform: 'uppercase', letterSpacing: 1.5 }}>Today's Inspiration</span>
               </div>
               <button onClick={refreshQuote} disabled={quoteLoading}
-                style={{ background: 'none', border: 'none', cursor: quoteLoading ? 'default' : 'pointer', color: '#7c3aed', padding: 4, display: 'flex', alignItems: 'center', opacity: quoteLoading ? 0.4 : 1 }}
+                style={{
+                  background: 'rgba(124, 58, 237, 0.08)',
+                  border: '1px solid rgba(124, 58, 237, 0.2)',
+                  color: 'var(--accent, #7c3aed)',
+                  borderRadius: 8,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: quoteLoading ? 'default' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  transition: 'background 0.2s',
+                  opacity: quoteLoading ? 0.6 : 1
+                }}
                 title="Refresh quote">
-                <RefreshCw size={13} style={{ animation: quoteLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+                <RefreshCw size={12} style={{ animation: quoteLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+                <span>New Quote</span>
               </button>
             </div>
-            <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.5, color: 'white', fontStyle: 'italic', marginBottom: quote.author ? 10 : 0 }}>
+            <p style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.6, color: 'white', fontStyle: 'italic', marginBottom: quote.author ? 12 : 0, letterSpacing: -0.5 }}>
               "{quote.quote}"
             </p>
             {quote.author && (
-              <div style={{ fontSize: 12, color: '#a78bfa', fontWeight: 600 }}>— {quote.author}</div>
+              <div style={{ fontSize: 13, color: 'var(--accent, #a78bfa)', fontWeight: 600 }}>— {quote.author}</div>
             )}
           </motion.div>
         </div>

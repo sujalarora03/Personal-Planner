@@ -110,12 +110,33 @@ export default function Courses() {
       </div>
 
       {loading ? (
-        <div className="page-loading"><div className="spinner-ring" /><span>Loading courses…</span></div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:14 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="glass skeleton" style={{ height: 160 }} />
+          ))}
+        </div>
       ) : (
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:14 }}>
         {courses.filter(c => !search || c.title.toLowerCase().includes(search.toLowerCase()) || (c.provider||'').toLowerCase().includes(search.toLowerCase())).length === 0 && (
-          <div className="glass" style={{ padding:40, textAlign:'center', color:'rgba(255,255,255,0.3)', gridColumn:'1/-1' }}>
-            {search ? `No courses match "${search}"` : 'No courses found.'}
+          <div className="glass" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1/-1' }}>
+            {search ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'white', marginBottom: 8 }}>No matching courses</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Try a different search query or filter</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 56, marginBottom: 16 }}>🎓</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8 }}>Track your learning</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
+                  Keep track of tutorials, online courses, and certifications. Add your first course to begin.
+                </div>
+                <button className="btn btn-purple" onClick={() => setShowAdd(true)}>
+                  <Plus size={16} /> Add your first course
+                </button>
+              </>
+            )}
           </div>
         )}
         {courses.filter(c => !search || c.title.toLowerCase().includes(search.toLowerCase()) || (c.provider||'').toLowerCase().includes(search.toLowerCase())).map((c, i) => {

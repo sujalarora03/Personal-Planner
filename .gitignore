@@ -67,3 +67,4 @@ logs/
 *.log
 models/
 tmp/
+Output/

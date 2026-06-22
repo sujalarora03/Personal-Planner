@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Pause, RotateCcw, SkipForward, Tv } from 'lucide-react'
+import { Play, Pause, RotateCcw, SkipForward, Tv, Clock, CheckCircle2 } from 'lucide-react'
 import { api } from '../api/client'
 
 const SESSIONS_BEFORE_LONG = 4
@@ -34,6 +34,7 @@ export default function Pomodoro({
   switchMode
 }) {
   const [projects, setProjects] = useState([])
+  const [todaySessions, setTodaySessions] = useState([])
   // Local draft state for the number inputs — lets user type freely without NaN commits
   const [draftFocus, setDraftFocus] = useState(String(focusMins))
   const [draftBreak, setDraftBreak] = useState(String(breakMins))
@@ -48,6 +49,7 @@ export default function Pomodoro({
     if (prevBreak.current !== breakMins) { setDraftBreak(String(breakMins)); prevBreak.current = breakMins }
     if (prevLong.current  !== longBreakMins) { setDraftLong(String(longBreakMins));  prevLong.current  = longBreakMins }
   }, [focusMins, breakMins, longBreakMins])
+
 
   const commitFocus = () => {
     const v = Math.max(1, Math.min(180, parseInt(draftFocus) || focusMins))
@@ -68,6 +70,23 @@ export default function Pomodoro({
   useEffect(() => { 
     api.getProjects().then(setProjects).catch(() => {}) 
   }, [])
+
+  // Load today's sessions from work_hours
+  const loadTodaySessions = () => {
+    const today = new Date().toISOString().slice(0, 10)
+    api.getWorkHours(100)
+      .then(sessions => {
+        const todays = sessions.filter(s => s.date === today && s.task?.toLowerCase().includes('pomodoro'))
+        setTodaySessions(todays)
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadTodaySessions()
+    // Reload when sessions counter changes (a new one completed)
+  }, [sessions])
+
 
   const totalSecs = () => {
     if (mode === 'focus') return focusMins * 60
@@ -240,13 +259,39 @@ export default function Pomodoro({
             </div>
           </div>
 
-          <div className="glass" style={{ marginTop: 20, padding: '12px 14px', background: 'rgba(255,255,255,0.03)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 8 }}>HOW IT WORKS</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.7 }}>
-              🎯 Work for <strong style={{ color: '#a78bfa' }}>{focusMins} min</strong>, then take a <strong style={{ color: '#22d3ee' }}>{breakMins} min break</strong>.<br />
-              Every 4 sessions → <strong style={{ color: '#22d3ee' }}>{longBreakMins} min long break</strong>.<br />
-              Completed sessions are <strong style={{ color: '#34d399' }}>auto-logged</strong> to Work Hours.
+          {/* Today's Session Log */}
+          <div className="glass" style={{ marginTop: 20, padding: '14px 16px', background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Clock size={12} style={{ color: '#a78bfa' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.08em' }}>TODAY'S SESSIONS</span>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a78bfa', background: 'rgba(167,139,250,0.12)', padding: '1px 7px', borderRadius: 99 }}>
+                {sessions} done
+              </span>
             </div>
+            {sessions === 0 ? (
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', lineHeight: 1.7, textAlign: 'center', padding: '10px 0' }}>
+                🎯 Start your first session! Work for <strong style={{ color: '#a78bfa' }}>{focusMins} min</strong>, then {breakMins} min break.<br />
+                Every 4 sessions → <strong style={{ color: '#22d3ee' }}>{longBreakMins} min</strong> long break. Auto-logged to Work Hours.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {Array.from({ length: sessions }, (_, i) => {
+                  const s = todaySessions[todaySessions.length - 1 - i]
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <CheckCircle2 size={13} style={{ color: '#34d399', flexShrink: 0 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+                        Session {sessions - i}
+                        {s?.task && <span style={{ color: 'rgba(255,255,255,0.35)', marginLeft: 6 }}>· {s.task}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+                        {s ? `${s.minutes}min` : `${focusMins}min`}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </motion.div>
       </div>

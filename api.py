@@ -224,6 +224,7 @@ class WorkSessionCreate(BaseModel):
     category: str = "Work"
     date: Optional[str] = None
     project_id: Optional[int] = None
+    task_id: Optional[int] = None
 
 @app.get("/api/work-hours")
 def get_work_hours(limit: int = 50):
@@ -252,6 +253,7 @@ def log_work(body: WorkSessionCreate):
         project_id=body.project_id,
         category=body.category,
         date_str=d,
+        task_id=body.task_id,
     )
     return {"ok": True}
 
@@ -587,6 +589,198 @@ def update_note(note_id: int, body: NoteUpdate):
 def delete_note(note_id: int):
     db.delete_note(note_id)
     return {"ok": True}
+
+
+def md_to_html(md_text: str) -> str:
+    import re
+    html = md_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    
+    # Code blocks
+    def replace_code_block(match):
+        code = match.group(2)
+        return f"<pre><code>{code}</code></pre>"
+    html = re.sub(r"```(.*?)\n(.*?)```", replace_code_block, html, flags=re.DOTALL)
+    
+    # Inline code
+    html = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", html)
+    
+    # Headers
+    html = re.sub(r"^### (.*?)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
+    html = re.sub(r"^## (.*?)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
+    html = re.sub(r"^# (.*?)$", r"<h1>\1</h1>", html, flags=re.MULTILINE)
+    
+    # Bold & Italic
+    html = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", html)
+    html = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", html)
+    
+    # Lists
+    def replace_bullets(match):
+        items = match.group(0).split('\n')
+        list_html = "<ul>\n"
+        for item in items:
+            item_text = re.sub(r"^[\*\-]\s*", "", item).strip()
+            if item_text:
+                list_html += f"  <li>{item_text}</li>\n"
+        list_html += "</ul>"
+        return list_html
+    html = re.sub(r"(?:^[\*\-]\s+.*?\n?)+", replace_bullets, html, flags=re.MULTILINE)
+
+    # Blockquotes
+    def replace_blockquotes(match):
+        lines = match.group(0).split('\n')
+        quote_content = "<br>".join(re.sub(r"^>\s*", "", l).strip() for l in lines if l.strip())
+        return f"<blockquote>{quote_content}</blockquote>"
+    html = re.sub(r"(?:^>\s+.*?\n?)+", replace_blockquotes, html, flags=re.MULTILINE)
+    
+    # Links
+    html = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2" target="_blank">\1</a>', html)
+    
+    # Paragraphs
+    parts = html.split("\n\n")
+    formatted_parts = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if p.startswith("<h") or p.startswith("<ul") or p.startswith("<ol") or p.startswith("<pre") or p.startswith("<block"):
+            formatted_parts.append(p)
+        else:
+            p_formatted = p.replace("\n", "<br>")
+            formatted_parts.append(f"<p>{p_formatted}</p>")
+            
+    return "\n".join(formatted_parts)
+
+@app.get("/api/notes/{note_id}/export")
+def export_note(note_id: int, format: str = "html"):
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT n.*, p.name as project_name FROM notes n "
+            "LEFT JOIN projects p ON n.project_id = p.id WHERE n.id = ?",
+            (note_id,)
+        ).fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    note = dict(row)
+    title = note.get("title") or f"Note-{note['note_date']}"
+    content = note.get("content") or ""
+    
+    if format.lower() == "markdown":
+        from fastapi.responses import Response
+        proj_str = f"Project: {note['project_name']}\n" if note.get("project_name") else ""
+        md_text = (
+            f"# {title}\n"
+            f"**Date: {note['note_date']}**\n"
+            f"{proj_str}\n"
+            "---\n\n"
+            f"{content}"
+        )
+        filename = f"{title.lower().replace(' ', '_')}.md"
+        filename = "".join(c for c in filename if c.isalnum() or c in "._-")
+        return Response(
+            content=md_text,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    else:
+        proj_span = f"<span>Project: {note['project_name']}</span>" if note.get("project_name") else ""
+        html_content = md_to_html(content)
+        
+        html_page = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }}
+    h1 {{
+      font-size: 32px;
+      margin-bottom: 8px;
+      border-bottom: 2px solid #8b5cf6;
+      padding-bottom: 8px;
+      color: #111;
+    }}
+    .meta {{
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 30px;
+      display: flex;
+      gap: 16px;
+    }}
+    .meta span {{
+      background: #f3f4f6;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 500;
+    }}
+    .content {{
+      font-size: 16px;
+      color: #222;
+    }}
+    .content pre {{
+      background: #f3f4f6;
+      padding: 12px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: monospace;
+    }}
+    .content code {{
+      font-family: monospace;
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }}
+    .content blockquote {{
+      border-left: 4px solid #8b5cf6;
+      margin: 0;
+      padding-left: 16px;
+      color: #555;
+      font-style: italic;
+    }}
+    ul, ol {{
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }}
+    li {{
+      margin-bottom: 6px;
+    }}
+    p {{
+      margin-bottom: 16px;
+    }}
+    @media print {{
+      body {{
+        margin: 20px;
+        max-width: 100%;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  <div class="meta">
+    <span>Date: {note.get("note_date", "")}</span>
+    {proj_span}
+  </div>
+  <div class="content">
+    {html_content}
+  </div>
+</body>
+</html>"""
+        from fastapi.responses import HTMLResponse
+        filename = f"{title.lower().replace(' ', '_')}.html"
+        filename = "".join(c for c in filename if c.isalnum() or c in "._-")
+        return HTMLResponse(
+            content=html_page,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1445,11 +1639,11 @@ SKILL_KEYWORDS = {
 }
 
 ANALYSIS_PROMPTS = {
-    "Skill Gap Analysis": "Analyse this resume and identify key skill gaps. What technologies and skills are missing for senior roles in this domain?",
-    "Role Suggestions": "Based on this resume, suggest 5 job roles that are a great fit and 3 stretch roles to aim for, with reasoning.",
-    "Course Recommendations": "Based on the skill gaps in this resume, recommend 8 specific online courses (with platforms) to take now.",
-    "ATS Feedback": "Review this resume for ATS compatibility. Give specific, actionable formatting and keyword improvements.",
-    "Career Roadmap": "Create a detailed 12-month career roadmap for this person including skills, certifications, and milestones.",
+    "Skill Gap Analysis": "Identify key skill gaps between the user's current resume and the target roles/goals specified in their Career Context. Focus on the specific technologies, concepts, and soft/hard skills they need to acquire to achieve their objectives.",
+    "Role Suggestions": "Suggest 5 specific job roles that align with the user's background and their target career direction/interests from the Career Context, plus 3 stretch roles to aim for, with detailed reasoning.",
+    "Course Recommendations": "Based on the target career direction and the skill gaps identified between the resume and the Career Context, recommend 8 specific online courses (with platforms) to help them close these gaps.",
+    "ATS Feedback": "Review the resume for ATS compatibility for the target roles/industries specified in the Career Context. Give specific formatting and keyword adjustments tailored to those target roles.",
+    "Career Roadmap": "Create a detailed 12-month career roadmap tailored to help the user achieve the specific goals and transition outlined in their Career Context. Include quarterly skills milestones, certifications, and project ideas.",
 }
 
 def _extract_text_from_bytes(filename: str, content: bytes) -> str:
@@ -1597,16 +1791,14 @@ def init_resume_profile_endpoint(resume_id: int):
         "You are an expert career coach. Analyze the following resume content and output a JSON object with exactly two keys:\n"
         "1. 'summary': A concise 3-4 sentence career summary covering their current level, key technical strengths, "
         "domain expertise, and one concrete gap or growth area you notice.\n"
-        "2. 'questions': An array of EXACTLY 3 open-ended, forward-looking questions that help the user define their "
-        "CAREER GOALS — NOT yes/no questions inferred from their past. Each question should invite the user to share "
-        "new information not already in the resume. Cover these three angles:\n"
-        "   a) Target role & company: e.g. 'What job title and type of company (startup/enterprise/remote) are you "
-        "targeting for your next move, and within what timeframe?'\n"
-        "   b) Skills priority: e.g. 'Which skill or technology do you most want to deepen or switch into, "
-        "and why is that important for your goals?'\n"
-        "   c) Career constraint or preference: e.g. 'Are there any hard constraints — like location, salary band, "
-        "industry, or work style — that should shape your career plan?'\n"
-        "Keep questions concise (one sentence each), personal but professional.\n"
+        "2. 'questions': An array of EXACTLY 3 open-ended, deeply personalized, forward-looking questions that help the user define their "
+        "CAREER GOALS. Each question must invite the user to share new information not already in the resume. "
+        "Do NOT ask generic or boilerplate questions (like standard location, salary, or company-type templates). Instead, look at their specific role, "
+        "their industry, their skills, and any gaps, and craft 3 highly tailored questions:\n"
+        "   - One question probing their next technical or leadership level/direction (e.g., if they are junior, do they want to specialize or go full-stack? If senior, do they want architecture, team lead, or management?)\n"
+        "   - One question probing their ideal projects, domain focus, or type of problems they want to solve (e.g. scaling databases, building UI systems, moving into AI/Data, fintech, healthtech, etc.)\n"
+        "   - One question probing their learning goals or skill pivot priorities based on the gap you noticed in their resume summary.\n"
+        "Keep questions concise (one sentence each), personal, professional, and directly referencing their background.\n"
         "Output ONLY a valid JSON object. No markdown, no code fences, no extra text.\n\n"
         f"Resume:\n{content[:6000]}"
     )
@@ -1690,11 +1882,15 @@ def refine_resume_profile_endpoint(resume_id: int, body: RefineRequest):
         raise HTTPException(500, "Local AI model not found")
         
     prompt = (
-        "You are an expert career coach. Here is the user's initial resume summary and their answers to some career goals questions.\n\n"
+        "You are an expert career coach. Here is the user's initial resume summary and their answers to the personalized career goals questions.\n\n"
         f"Initial Resume Summary: {extracted_context}\n\n"
         "Questions and Answers:\n"
         f"{qa_text}\n\n"
-        "Synthesize this information into a refined career profile context (2-3 paragraphs, around 150-200 words) that describes their current profile, their career objectives, target roles, and what they need to focus on. Make it encouraging and highly personalized. This will be the guiding context for their career roadmaps."
+        "Synthesize this information into a refined career profile context (2-3 paragraphs, around 150-200 words) that outlines:\n"
+        "1. CURRENT STANDING: A quick synthesis of their background, strengths, and immediate growth areas.\n"
+        "2. TARGET DIRECTION: The specific job title, industry, and project/domain focus they want to target next based on their answers.\n"
+        "3. GROWTH FOCUS: The exact technical skills, leadership abilities, or concepts they need to build/deepen to achieve their targets.\n"
+        "Be encouraging, highly personalized, and direct. Avoid generic filler. This will guide all subsequent roadmaps and recommendations."
     )
     
     try:
@@ -1764,9 +1960,255 @@ def get_feedback():
         return json.load(f)
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ACHIEVEMENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ACHIEVEMENT_DEFS = [
+    { "id": "first_task",       "icon": "✅", "title": "First Step",         "desc": "Complete your first task",                   "category": "Tasks" },
+    { "id": "tasks_10",         "icon": "📋", "title": "Task Master",         "desc": "Complete 10 tasks",                          "category": "Tasks" },
+    { "id": "tasks_50",         "icon": "🏅", "title": "Productivity Pro",    "desc": "Complete 50 tasks",                          "category": "Tasks" },
+    { "id": "tasks_100",        "icon": "🏆", "title": "Century Club",        "desc": "Complete 100 tasks",                         "category": "Tasks" },
+    { "id": "first_habit",      "icon": "🔥", "title": "Habit Starter",       "desc": "Log a habit for the first time",             "category": "Habits" },
+    { "id": "habit_streak_7",   "icon": "📅", "title": "Week Warrior",        "desc": "Maintain a 7-day habit streak",             "category": "Habits" },
+    { "id": "habit_streak_30",  "icon": "🌟", "title": "Habit Champion",      "desc": "Maintain a 30-day habit streak",            "category": "Habits" },
+    { "id": "first_note",       "icon": "✍️", "title": "Note Taker",          "desc": "Write your first note",                     "category": "Notes" },
+    { "id": "notes_20",         "icon": "📚", "title": "Documenter",          "desc": "Write 20 notes",                            "category": "Notes" },
+    { "id": "first_project",    "icon": "🚀", "title": "Launched",            "desc": "Create your first project",                 "category": "Projects" },
+    { "id": "hours_10",         "icon": "⏰", "title": "Time Investor",       "desc": "Log 10 hours of work",                      "category": "Work" },
+    { "id": "hours_100",        "icon": "💼", "title": "Dedicated Worker",    "desc": "Log 100 hours of work",                     "category": "Work" },
+    { "id": "first_course",     "icon": "🎓", "title": "Student",             "desc": "Start your first course",                   "category": "Learning" },
+    { "id": "course_done",      "icon": "🎖️", "title": "Graduate",            "desc": "Complete a course",                         "category": "Learning" },
+]
+
+@app.get("/api/achievements")
+def get_achievements():
+    try:
+        with db.get_connection() as conn:
+            tasks_done   = conn.execute("SELECT COUNT(*) FROM tasks WHERE status='Done' AND NOT archived").fetchone()[0]
+            habit_logs   = conn.execute("SELECT COUNT(*) FROM habit_logs").fetchone()[0]
+            max_streak   = 0
+            habits = conn.execute("SELECT id FROM habits").fetchall()
+            from datetime import date, timedelta
+            for h in habits:
+                logs = {r[0] for r in conn.execute("SELECT date FROM habit_logs WHERE habit_id=?", (h[0],)).fetchall()}
+                s, check = 0, date.today()
+                while check.isoformat() in logs:
+                    s += 1; check -= timedelta(days=1)
+                max_streak = max(max_streak, s)
+            notes_count   = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+            projects_count= conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+            total_mins    = conn.execute("SELECT COALESCE(SUM(minutes),0) FROM work_hours").fetchone()[0]
+            total_hours   = total_mins / 60
+            courses_total = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
+            courses_done  = conn.execute("SELECT COUNT(*) FROM courses WHERE status='completed'").fetchone()[0]
+
+        def check(aid):
+            if aid == "first_task":      return tasks_done >= 1
+            if aid == "tasks_10":        return tasks_done >= 10
+            if aid == "tasks_50":        return tasks_done >= 50
+            if aid == "tasks_100":       return tasks_done >= 100
+            if aid == "first_habit":     return habit_logs >= 1
+            if aid == "habit_streak_7":  return max_streak >= 7
+            if aid == "habit_streak_30": return max_streak >= 30
+            if aid == "first_note":      return notes_count >= 1
+            if aid == "notes_20":        return notes_count >= 20
+            if aid == "first_project":   return projects_count >= 1
+            if aid == "hours_10":        return total_hours >= 10
+            if aid == "hours_100":       return total_hours >= 100
+            if aid == "first_course":    return courses_total >= 1
+            if aid == "course_done":     return courses_done >= 1
+            return False
+
+        return [{ **a, "unlocked": check(a["id"]) } for a in ACHIEVEMENT_DEFS]
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTIFICATIONS CONFIG
+# ═══════════════════════════════════════════════════════════════════════════════
+
+NOTIF_FILE = os.path.join(USER_DIR, "notifications_config.json")
+
+@app.get("/api/notifications/config")
+def get_notifications_config():
+    if not os.path.exists(NOTIF_FILE):
+        return { "pomodoro_done": True, "task_due": True, "habit_reminder": False, "habit_reminder_time": "08:00" }
+    with open(NOTIF_FILE, "r") as f:
+        return json.load(f)
+
+@app.post("/api/notifications/config")
+def save_notifications_config(body: dict):
+    with open(NOTIF_FILE, "w") as f:
+        json.dump(body, f, indent=2)
+    return { "ok": True }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTO-BACKUP SCHEDULER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BACKUP_CFG_FILE = os.path.join(USER_DIR, "backup_config.json")
+
+def run_backup_sync():
+    try:
+        from database import DB_PATH
+        if not os.path.exists(DB_PATH):
+            return
+        if not os.path.exists(BACKUP_CFG_FILE):
+            return
+        with open(BACKUP_CFG_FILE, "r") as f:
+            cfg = json.load(f)
+        if not cfg.get("enabled", False):
+            return
+            
+        interval = cfg.get("interval", "weekly")
+        last_str = cfg.get("last_backup", "")
+        now = datetime.now()
+        
+        should_run = False
+        if not last_str:
+            should_run = True
+        else:
+            try:
+                last_time = datetime.fromisoformat(last_str)
+                delta = now - last_time
+                if interval == "daily" and delta >= timedelta(days=1):
+                    should_run = True
+                elif interval == "weekly" and delta >= timedelta(days=7):
+                    should_run = True
+            except Exception:
+                should_run = True
+                
+        if should_run:
+            backup_dir = cfg.get("backup_dir", "").strip()
+            if not backup_dir:
+                backup_dir = os.path.join(USER_DIR, "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            filename = f"planner_backup_{timestamp}.db"
+            dest = os.path.join(backup_dir, filename)
+            
+            import shutil
+            shutil.copy2(DB_PATH, dest)
+            
+            cfg["last_backup"] = now.isoformat()
+            with open(BACKUP_CFG_FILE, "w") as f:
+                json.dump(cfg, f, indent=2)
+                
+            try:
+                import glob
+                files = sorted(glob.glob(os.path.join(backup_dir, "planner_backup_*.db")))
+                if len(files) > 5:
+                    for old_file in files[:-5]:
+                        try:
+                            os.remove(old_file)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Error in run_backup_sync: {e}")
+
+@app.on_event("startup")
+def startup_event():
+    threading.Thread(target=run_backup_sync, daemon=True).start()
+
+@app.get("/api/backup/config")
+def get_backup_config():
+    if not os.path.exists(BACKUP_CFG_FILE):
+        return { "enabled": False, "interval": "weekly", "backup_dir": "", "last_backup": "" }
+    try:
+        with open(BACKUP_CFG_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return { "enabled": False, "interval": "weekly", "backup_dir": "", "last_backup": "" }
+
+@app.post("/api/backup/config")
+def save_backup_config(body: dict):
+    backup_dir = body.get("backup_dir", "").strip()
+    if backup_dir:
+        try:
+            os.makedirs(backup_dir, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid backup directory path: {e}")
+            
+    current = {}
+    if os.path.exists(BACKUP_CFG_FILE):
+        try:
+            with open(BACKUP_CFG_FILE, "r") as f:
+                current = json.load(f)
+        except Exception:
+            pass
+            
+    body["last_backup"] = current.get("last_backup", "")
+    with open(BACKUP_CFG_FILE, "w") as f:
+        json.dump(body, f, indent=2)
+    return { "ok": True }
+
+@app.post("/api/backup/run")
+def run_backup_manual():
+    from database import DB_PATH
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(404, "Database file not found")
+        
+    backup_dir = ""
+    if os.path.exists(BACKUP_CFG_FILE):
+        try:
+            with open(BACKUP_CFG_FILE, "r") as f:
+                cfg = json.load(f)
+                backup_dir = cfg.get("backup_dir", "").strip()
+        except Exception:
+            pass
+            
+    if not backup_dir:
+        backup_dir = os.path.join(USER_DIR, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"planner_backup_{timestamp}.db"
+    dest = os.path.join(backup_dir, filename)
+    
+    try:
+        import shutil
+        shutil.copy2(DB_PATH, dest)
+        
+        cfg = { "enabled": False, "interval": "weekly", "backup_dir": "", "last_backup": "" }
+        if os.path.exists(BACKUP_CFG_FILE):
+            try:
+                with open(BACKUP_CFG_FILE, "r") as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+        cfg["last_backup"] = datetime.now().isoformat()
+        with open(BACKUP_CFG_FILE, "w") as f:
+            json.dump(cfg, f, indent=2)
+            
+        return { "ok": True, "path": dest }
+    except Exception as e:
+        raise HTTPException(500, f"Backup failed: {e}")
+
+@app.get("/api/db/export")
+def export_database():
+    """Download a copy of the database file for backup."""
+    from database import DB_PATH
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(404, "Database not found")
+    filename = f"personal-planner-backup-{date.today().isoformat()}.db"
+    return FileResponse(
+        path=DB_PATH,
+        media_type="application/octet-stream",
+        filename=filename,
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SPA FALLBACK — must be LAST so all /api/* routes are matched first
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 _SETUP_HTML = """<!DOCTYPE html>
 <html>

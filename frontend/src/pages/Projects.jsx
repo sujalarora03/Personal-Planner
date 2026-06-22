@@ -88,12 +88,33 @@ export default function Projects() {
       </div>
 
       {loading ? (
-        <div className="page-loading"><div className="spinner-ring" /><span>Loading projects…</span></div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="glass skeleton" style={{ height: 210 }} />
+          ))}
+        </div>
       ) : (
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
         {projects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase())).length === 0 && (
-          <div className="glass" style={{ padding:40, textAlign:'center', color:'rgba(255,255,255,0.3)', gridColumn:'1/-1' }}>
-            {search ? `No projects match "${search}"` : 'No projects yet.'} {!search && <button className="btn btn-purple btn-sm" style={{ marginLeft:12 }} onClick={() => setShowAdd(true)}>Create one</button>}
+          <div className="glass" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1/-1' }}>
+            {search ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'white', marginBottom: 8 }}>No matching projects</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Try a different search query</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 56, marginBottom: 16 }}>📁</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8 }}>Manage your projects</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
+                  Group tasks, track milestones, and visualize progress. Create your first project to get started.
+                </div>
+                <button className="btn btn-purple" onClick={() => setShowAdd(true)}>
+                  <Plus size={16} /> Create first project
+                </button>
+              </>
+            )}
           </div>
         )}
         {projects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase())).map((p, i) => (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { Download, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 import toast from 'react-hot-toast'
@@ -60,8 +60,28 @@ export default function Dashboard() {
 
   if (loading) return (
     <div className="page">
-      <div className="page-header"><h1 className="page-title">Dashboard</h1></div>
-      <div className="page-loading"><div className="spinner-ring" /><span>Loading dashboard…</span></div>
+      <div className="page-header" style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-sub">Your productivity at a glance</p>
+        </div>
+      </div>
+      
+      {/* Skeleton Stats Grid */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:28 }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} className="glass skeleton" style={{ height: 102 }} />
+        ))}
+      </div>
+      
+      {/* Skeleton Charts */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginBottom:20 }}>
+        <div className="glass skeleton" style={{ height: 260 }} />
+        <div className="glass skeleton" style={{ height: 260 }} />
+      </div>
+      
+      {/* Skeleton AI Review */}
+      <div className="glass skeleton" style={{ height: 120 }} />
     </div>
   )
 
@@ -101,14 +121,19 @@ export default function Dashboard() {
           className="glass" style={{ padding:22 }}>
           <div style={{ fontWeight:700, marginBottom:16 }}>Weekly Work Hours</div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={weekly} barSize={20}>
+            <ComposedChart data={weekly} barSize={20}>
               <XAxis dataKey="date" tick={{ fill:'#6b7280', fontSize:11 }} tickFormatter={d => d.slice(5)} />
               <YAxis tick={{ fill:'#6b7280', fontSize:11 }} />
               <Tooltip contentStyle={{ background:'#0f0f1e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8 }} />
+              <ReferenceLine y={6} stroke="var(--accent, #7c3aed)" strokeDasharray="3 3" label={{ value: 'Daily Goal (6h)', fill: 'var(--accent, #7c3aed)', fontSize: 10, position: 'top' }} />
               <Bar dataKey="hours" radius={4}>
-                {weekly.map((_, i) => <Cell key={i} fill={ACCENT} fillOpacity={0.7 + i*0.04} />)}
+                {weekly.map((entry, i) => {
+                  const isToday = entry.date === new Date().toLocaleDateString('sv')
+                  return <Cell key={i} fill={isToday ? 'var(--accent, #7c3aed)' : 'rgba(255, 255, 255, 0.15)'} />
+                })}
               </Bar>
-            </BarChart>
+              <Line type="monotone" dataKey="hours" stroke="#06b6d4" strokeWidth={2} dot={{ fill: '#06b6d4', r: 3 }} />
+            </ComposedChart>
           </ResponsiveContainer>
         </motion.div>
 
@@ -116,12 +141,19 @@ export default function Dashboard() {
           className="glass" style={{ padding:22 }}>
           <div style={{ fontWeight:700, marginBottom:16 }}>Monthly Work Hours</div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={monthly} barSize={28}>
+            <ComposedChart data={monthly} barSize={28}>
               <XAxis dataKey="month" tick={{ fill:'#6b7280', fontSize:11 }} />
               <YAxis tick={{ fill:'#6b7280', fontSize:11 }} />
               <Tooltip contentStyle={{ background:'#0f0f1e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8 }} />
-              <Bar dataKey="hours" radius={4} fill="#06b6d4" fillOpacity={0.8} />
-            </BarChart>
+              <ReferenceLine y={120} stroke="#06b6d4" strokeDasharray="3 3" label={{ value: 'Monthly Goal (120h)', fill: '#06b6d4', fontSize: 10, position: 'top' }} />
+              <Bar dataKey="hours" radius={4}>
+                {monthly.map((entry, i) => {
+                  const isCurrentMonth = entry.month === new Date().toLocaleDateString('sv').slice(0, 7)
+                  return <Cell key={i} fill={isCurrentMonth ? '#06b6d4' : 'rgba(255, 255, 255, 0.15)'} />
+                })}
+              </Bar>
+              <Line type="monotone" dataKey="hours" stroke="var(--accent, #7c3aed)" strokeWidth={2} dot={{ fill: 'var(--accent, #7c3aed)', r: 3 }} />
+            </ComposedChart>
           </ResponsiveContainer>
         </motion.div>
       </div>

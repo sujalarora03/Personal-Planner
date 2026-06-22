@@ -12,6 +12,13 @@ async function req(method, path, body) {
   return res.json()
 }
 
+async function blobReq(path) {
+  const res = await fetch(BASE + path)
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
+  return res.blob()
+}
+
+
 export const api = {
   // Tasks
   getTasks:    (params = {}) => req('GET', '/tasks?' + new URLSearchParams(params)),
@@ -113,4 +120,20 @@ export const api = {
   // Feedback
   submitFeedback: (body) => req('POST', '/feedback', body),
   getFeedback: () => req('GET', '/feedback'),
+
+  // Achievements
+  getAchievements: () => req('GET', '/achievements'),
+
+  // Notifications config
+  getNotificationsConfig: () => req('GET', '/notifications/config'),
+  saveNotificationsConfig: (body) => req('POST', '/notifications/config', body),
+
+  // Backup scheduler
+  getBackupConfig: () => req('GET', '/backup/config'),
+  saveBackupConfig: (body) => req('POST', '/backup/config', body),
+  runBackupManual: () => req('POST', '/backup/run'),
+
+  // Data export (returns Blob)
+  exportData: () => blobReq('/db/export'),
 }
+

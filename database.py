@@ -195,6 +195,7 @@ class Database:
             for migration in [
                 "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0",
                 "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL",
+                "ALTER TABLE work_sessions ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL",
             ]:
                 try:
                     conn.execute(migration)
@@ -333,32 +334,30 @@ class Database:
     # ── WORK SESSIONS ──────────────────────────────────────────────────────
 
     def add_work_session(self, start_time, end_time, duration_minutes,
-                         description='', project_id=None, category='Work', date_str=None):
+                         description='', project_id=None, category='Work', date_str=None, task_id=None):
         if date_str is None:
             date_str = datetime.now().strftime('%Y-%m-%d')
         with self.get_connection() as conn:
             conn.execute(
-                'INSERT INTO work_sessions (project_id, description, start_time, end_time, duration_minutes, date, category) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (project_id, description, start_time, end_time, duration_minutes, date_str, category)
+                'INSERT INTO work_sessions (project_id, description, start_time, end_time, duration_minutes, date, category, task_id) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (project_id, description, start_time, end_time, duration_minutes, date_str, category, task_id)
             )
             conn.commit()
 
     def get_work_sessions(self, start_date=None, end_date=None, limit=50):
         with self.get_connection() as conn:
+            base_query = '''
+                SELECT ws.*, p.name as project_name, t.title as task_title
+                FROM work_sessions ws
+                LEFT JOIN projects p ON ws.project_id = p.id
+                LEFT JOIN tasks t ON ws.task_id = t.id
+            '''
             if start_date and end_date:
-                return conn.execute(
-                    'SELECT ws.*, p.name as project_name FROM work_sessions ws '
-                    'LEFT JOIN projects p ON ws.project_id = p.id '
-                    'WHERE ws.date BETWEEN ? AND ? ORDER BY ws.date DESC, ws.start_time DESC LIMIT ?',
-                    (start_date, end_date, limit)
-                ).fetchall()
-            return conn.execute(
-                'SELECT ws.*, p.name as project_name FROM work_sessions ws '
-                'LEFT JOIN projects p ON ws.project_id = p.id '
-                'ORDER BY ws.date DESC, ws.start_time DESC LIMIT ?',
-                (limit,)
-            ).fetchall()
+                query = base_query + ' WHERE ws.date BETWEEN ? AND ? ORDER BY ws.date DESC, ws.start_time DESC LIMIT ?'
+                return conn.execute(query, (start_date, end_date, limit)).fetchall()
+            query = base_query + ' ORDER BY ws.date DESC, ws.start_time DESC LIMIT ?'
+            return conn.execute(query, (limit,)).fetchall()
 
     def get_weekly_hours(self):
         with self.get_connection() as conn:
@@ -530,6 +529,7 @@ class Database:
 
     def get_habits(self):
         today_str = date.today().isoformat()
+        week_dates = [(date.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
         with self.get_connection() as conn:
             habits = conn.execute('''
                 SELECT h.*,
@@ -551,8 +551,10 @@ class Database:
                     streak += 1
                     check = check - timedelta(days=1)
                 h_dict['streak'] = streak
+                h_dict['week_log'] = [d in dates for d in week_dates]
                 result.append(h_dict)
             return result
+
 
     def toggle_habit(self, habit_id):
         today_str = date.today().isoformat()

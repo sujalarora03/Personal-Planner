@@ -1,330 +1,342 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
-  GitBranch, RefreshCw, CheckCircle2, AlertCircle,
-  Code2, Heart, ExternalLink, Info, Sparkles,
+  Bell, Palette, Database, Shield, Save, CheckCircle2,
+  DownloadCloud, Trash2, RefreshCw,
 } from 'lucide-react'
 import { api } from '../api/client'
+import toast from 'react-hot-toast'
 
-const GITHUB_URL  = 'https://github.com/sujalarora03/Personal-Planner'
-const RELEASES_URL = 'https://github.com/sujalarora03/Personal-Planner/releases'
+const ACCENT_THEMES = [
+  { id: 'purple', label: 'Purple',  color: '#8b5cf6', bg: 'linear-gradient(135deg,#8b5cf6,#6366f1)' },
+  { id: 'ocean',  label: 'Ocean',   color: '#06b6d4', bg: 'linear-gradient(135deg,#06b6d4,#0284c7)' },
+  { id: 'rose',   label: 'Rose',    color: '#f43f5e', bg: 'linear-gradient(135deg,#f43f5e,#ec4899)' },
+  { id: 'amber',  label: 'Amber',   color: '#f59e0b', bg: 'linear-gradient(135deg,#f59e0b,#f97316)' },
+  { id: 'forest', label: 'Forest',  color: '#10b981', bg: 'linear-gradient(135deg,#10b981,#0d9488)' },
+]
 
-function openUrl(url) {
-  // Use the backend open-url endpoint so PyWebView doesn't try to navigate
-  fetch(`/api/open-url?url=${encodeURIComponent(url)}`).catch(() => {})
+function SectionHeader({ icon: Icon, title, color = '#a78bfa' }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+      <div style={{ width: 28, height: 28, borderRadius: 8, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon size={14} style={{ color }} />
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)' }}>
+        {title}
+      </span>
+    </div>
+  )
+}
+
+function Toggle({ value, onChange, label, description }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'white' }}>{label}</div>
+        {description && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{description}</div>}
+      </div>
+      <button
+        onClick={() => onChange(!value)}
+        style={{
+          width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+          background: value ? '#7c3aed' : 'rgba(255,255,255,0.1)',
+          position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+          boxShadow: value ? '0 0 12px rgba(124,58,237,0.4)' : 'none',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: 3, left: value ? 22 : 3,
+          width: 18, height: 18, borderRadius: '50%', background: 'white',
+          transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+        }} />
+      </button>
+    </div>
+  )
 }
 
 export default function Settings() {
-  const [checking, setChecking]         = useState(false)
-  const [updateResult, setUpdateResult] = useState(null) // null | { available, latest, current } | 'error'
-  const [installing, setInstalling]     = useState(false)
-  const [installedVersion, setInstalledVersion] = useState('')
+  const [activeTheme, setActiveTheme] = useState(() => localStorage.getItem('pp_theme') || 'purple')
+  const [notifConfig, setNotifConfig] = useState({ pomodoro_done: true, task_due: true, habit_reminder: false, habit_reminder_time: '08:00' })
+  const [saving, setSaving] = useState(false)
+  const [exportLoading, setExportLoading] = useState(false)
 
-  // Auto-check when the user opens this tab
+  // Backup scheduler states
+  const [backupConfig, setBackupConfig] = useState({ enabled: false, interval: 'weekly', backup_dir: '', last_backup: '' })
+  const [savingBackup, setSavingBackup] = useState(false)
+  const [manualBackupRunning, setManualBackupRunning] = useState(false)
+
   useEffect(() => {
-    api.getVersion().then(data => setInstalledVersion(data.version)).catch(() => {})
-    checkForUpdate()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    api.getNotificationsConfig().then(setNotifConfig).catch(() => {})
+    api.getBackupConfig().then(setBackupConfig).catch(() => {})
+    // Apply saved theme on mount
+    const saved = localStorage.getItem('pp_theme') || 'purple'
+    if (saved !== 'purple') document.documentElement.setAttribute('data-theme', saved)
+  }, [])
 
-  const checkForUpdate = async () => {
-    setChecking(true)
-    setUpdateResult(null)
+  const applyTheme = (id) => {
+    setActiveTheme(id)
+    localStorage.setItem('pp_theme', id)
+    if (id === 'purple') {
+      document.documentElement.removeAttribute('data-theme')
+    } else {
+      document.documentElement.setAttribute('data-theme', id)
+    }
+  }
+
+  const saveNotifications = async () => {
+    setSaving(true)
     try {
-      const data = await api.checkUpdate()
-      setUpdateResult(data)
+      await api.saveNotificationsConfig(notifConfig)
+      toast.success('Notification settings saved!')
     } catch {
-      setUpdateResult('error')
+      toast.error('Failed to save')
     } finally {
-      setChecking(false)
+      setSaving(false)
     }
   }
 
-  const startInstall = async () => {
-    if (!updateResult || !updateResult.available) return
-    setInstalling(true)
+  const handleExport = async () => {
+    setExportLoading(true)
     try {
-      // Trigger download then install via the existing updater endpoints
-      await fetch('/api/update/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installer_url: updateResult.installer_url, version: updateResult.latest }),
-      })
-      // Poll until ready/completed then install
-      const poll = setInterval(async () => {
-        const state = await fetch('/api/update/progress').then(r => r.json())
-        if (state.status === 'completed' || state.status === 'ready') {
-          clearInterval(poll)
-          await fetch('/api/update/install', { method: 'POST' })
-        } else if (state.status === 'error') {
-          clearInterval(poll)
-          setInstalling(false)
-          openUrl(RELEASES_URL)
-        }
-      }, 1000)
+      const blob = await api.exportData()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `personal-planner-backup-${new Date().toISOString().slice(0,10)}.db`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Database exported!')
     } catch {
-      setInstalling(false)
-      openUrl(RELEASES_URL)
+      toast.error('Export failed')
+    } finally {
+      setExportLoading(false)
     }
   }
 
-  const isUpToDate  = updateResult && updateResult !== 'error' && !updateResult.available
-  const hasUpdate   = updateResult && updateResult !== 'error' && updateResult.available
-  const isError     = updateResult === 'error'
+  const saveBackup = async () => {
+    setSavingBackup(true)
+    try {
+      await api.saveBackupConfig(backupConfig)
+      toast.success('Backup configuration saved!')
+    } catch (e) {
+      toast.error(e.message || 'Failed to save backup config')
+    } finally {
+      setSavingBackup(false)
+    }
+  }
+
+  const runManualBackup = async () => {
+    setManualBackupRunning(true)
+    try {
+      const res = await api.runBackupManual()
+      toast.success('Backup created successfully!')
+      setBackupConfig(prev => ({ ...prev, last_backup: new Date().toISOString() }))
+    } catch (e) {
+      toast.error('Backup failed: ' + (e.message || 'Error occurred'))
+    } finally {
+      setManualBackupRunning(false)
+    }
+  }
+
+  const setN = (key, value) => setNotifConfig(prev => ({ ...prev, [key]: value }))
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Settings ⚙️</h1>
-          <p className="page-sub">About this app · Updates · Open Source</p>
-        </div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 className="page-title">Settings</h1>
+        <p className="page-sub">Customize your Personal Planner experience</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, maxWidth: 860 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 720 }}>
 
-        {/* ── About card ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="glass" style={{ padding: 28, gridColumn: '1 / -1' }}>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-            <div style={{
-              width: 64, height: 64, borderRadius: 16, flexShrink: 0,
-              background: 'linear-gradient(135deg,#7c3aed,#06b6d4)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 30, boxShadow: '0 0 28px rgba(124,58,237,0.45)',
-            }}>⚡</div>
-
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'white' }}>Personal Planner</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                <span style={{
-                  background: 'rgba(124,58,237,0.25)', color: '#a78bfa',
-                  padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                }}>v{installedVersion || '0.8.10'} BETA</span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>
-                  Your local-first AI life planner
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            marginTop: 22, paddingTop: 20,
-            borderTop: '1px solid rgba(255,255,255,0.07)',
-            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16,
-          }}>
-            {[
-              { icon: '🔒', label: 'Fully Local', desc: 'All data stored on your device. Nothing sent to any cloud.' },
-              { icon: '🤖', label: 'AI-Powered',  desc: 'Runs a local LLM (llama-cpp-python) on your machine — no API key needed.' },
-              { icon: '🆓', label: 'Free Forever', desc: 'No paywalls, no subscriptions, no hidden costs.' },
-            ].map(({ icon, label, desc }) => (
-              <div key={label} style={{
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 12, padding: '14px 16px',
+        {/* ── Accent Theme ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass" style={{ padding: 24 }}>
+          <SectionHeader icon={Palette} title="Accent Color" color="#c084fc" />
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {ACCENT_THEMES.map(theme => (
+              <button key={theme.id} onClick={() => applyTheme(theme.id)} style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                padding: '12px 16px', borderRadius: 12, cursor: 'pointer',
+                background: activeTheme === theme.id ? theme.color + '18' : 'rgba(255,255,255,0.03)',
+                border: `2px solid ${activeTheme === theme.id ? theme.color : 'rgba(255,255,255,0.07)'}`,
+                transition: 'all 0.2s',
+                boxShadow: activeTheme === theme.id ? `0 0 16px ${theme.color}30` : 'none',
               }}>
-                <div style={{ fontSize: 22, marginBottom: 6 }}>{icon}</div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'white', marginBottom: 4 }}>{label}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>{desc}</div>
-              </div>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: theme.bg, boxShadow: `0 4px 12px ${theme.color}40` }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: activeTheme === theme.id ? theme.color : 'rgba(255,255,255,0.4)' }}>
+                  {theme.label}
+                </span>
+                {activeTheme === theme.id && (
+                  <CheckCircle2 size={14} style={{ color: theme.color, position: 'absolute' }} />
+                )}
+              </button>
             ))}
           </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
+            Theme is applied instantly and saved to your device.
+          </div>
         </motion.div>
 
-        {/* ── Creator card ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-          className="glass" style={{ padding: 24 }}>
-
-          <div style={{
-            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1,
-            color: 'rgba(255,255,255,0.35)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <Heart size={12} color="#f472b6" /> Creator
+        {/* ── Notifications ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="glass" style={{ padding: 24 }}>
+          <SectionHeader icon={Bell} title="Notifications" color="#fb923c" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <Toggle value={notifConfig.pomodoro_done}   onChange={v => setN('pomodoro_done', v)}
+              label="Focus Session Complete"  description="Get notified when a Pomodoro focus session finishes" />
+            <Toggle value={notifConfig.task_due}        onChange={v => setN('task_due', v)}
+              label="Task Due Reminder"       description="Notify 30 minutes before a task is due today" />
+            <Toggle value={notifConfig.habit_reminder}  onChange={v => setN('habit_reminder', v)}
+              label="Morning Habit Reminder"  description="Daily reminder to check your habits" />
+            {notifConfig.habit_reminder && (
+              <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Reminder time:</span>
+                <input type="time" value={notifConfig.habit_reminder_time}
+                  onChange={e => setN('habit_reminder_time', e.target.value)}
+                  style={{ width: 120 }} />
+              </div>
+            )}
           </div>
+          <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button className="btn btn-purple btn-sm" onClick={saveNotifications} disabled={saving}>
+              {saving ? <><RefreshCw size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> Saving…</> : <><Save size={12} /> Save</>}
+            </button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>
+            ℹ️ Notifications require the app to be running. Desktop toasts are used — no internet needed.
+          </div>
+        </motion.div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <div style={{
-              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-              background: 'linear-gradient(135deg,#7c3aed,#06b6d4)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 20, fontWeight: 800, color: 'white',
-            }}>S</div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: 'white' }}>Sujal Arora</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
-                Developer &amp; Designer
+        {/* ── Data Management ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass" style={{ padding: 24 }}>
+          <SectionHeader icon={Database} title="Data Management" color="#34d399" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Export Database Backup</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Download your SQLite database file for safekeeping</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={handleExport} disabled={exportLoading} style={{ flexShrink: 0 }}>
+                {exportLoading ? <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <DownloadCloud size={13} />}
+                {exportLoading ? ' Exporting…' : ' Export'}
+              </button>
+            </div>
+            <div style={{ padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Data Location</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>All data stored locally in your AppData folder</div>
+              </div>
+              <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: 6 }}>
+                %APPDATA%\PersonalPlanner
               </div>
             </div>
           </div>
-
-          <div style={{
-            fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7,
-            background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '12px 14px',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}>
-            Built with <span style={{ color: '#f472b6' }}>♥</span> as a personal project to make
-            productivity, AI, and self-improvement accessible to everyone — completely free and
-            running 100% on your own machine.
-          </div>
         </motion.div>
 
-        {/* ── Open Source card ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
-          className="glass" style={{ padding: 24 }}>
+        {/* ── Auto-Backup Scheduler ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="glass" style={{ padding: 24 }}>
+          <SectionHeader icon={Database} title="Local Auto-Backup" color="#60a5fa" />
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Toggle 
+              value={backupConfig.enabled}   
+              onChange={v => setBackupConfig(prev => ({ ...prev, enabled: v }))}
+              label="Enable Automated Database Backups"  
+              description="Automatically backup your database in the background when starting the application" 
+            />
 
-          <div style={{
-            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1,
-            color: 'rgba(255,255,255,0.35)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <Code2 size={12} /> Open Source
-          </div>
+            {backupConfig.enabled && (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: 'white' }}>Backup Frequency</label>
+                  <select 
+                    value={backupConfig.interval} 
+                    onChange={e => setBackupConfig(prev => ({ ...prev, interval: e.target.value }))}
+                    style={{ 
+                      width: '100%', 
+                      fontSize: 13, 
+                      padding: '8px 10px',
+                      background: 'rgba(0,0,0,0.2)', 
+                      color: 'white', 
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 8
+                    }}
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                    How often the scheduler will make a new backup version of your planner database.
+                  </div>
+                </div>
 
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7, marginBottom: 18 }}>
-            Personal Planner is <strong style={{ color: 'white' }}>open source</strong> under the MIT License.
-            Browse the code, report issues, suggest features, or contribute — all on GitHub.
-          </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: 'white' }}>Backup Destination Directory (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={backupConfig.backup_dir} 
+                    onChange={e => setBackupConfig(prev => ({ ...prev, backup_dir: e.target.value }))}
+                    placeholder="e.g. C:\MyBackups or leave empty for default backups folder"
+                    style={{ 
+                      width: '100%', 
+                      fontSize: 12, 
+                      padding: '8px 10px',
+                      background: 'rgba(0,0,0,0.2)', 
+                      color: 'white', 
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 8,
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                    Leave empty to store backups inside your AppData folder: <code>%APPDATA%\PersonalPlanner\backups</code>.
+                  </div>
+                </div>
+              </>
+            )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              onClick={() => openUrl(GITHUB_URL)}
-              className="btn btn-ghost"
-              style={{ justifyContent: 'space-between', width: '100%' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <GitBranch size={14} /> Source Code
-              </span>
-              <ExternalLink size={12} style={{ opacity: 0.5 }} />
-            </button>
-
-            <button
-              onClick={() => openUrl(RELEASES_URL)}
-              className="btn btn-ghost"
-              style={{ justifyContent: 'space-between', width: '100%' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Sparkles size={14} /> All Releases &amp; Changelogs
-              </span>
-              <ExternalLink size={12} style={{ opacity: 0.5 }} />
-            </button>
-          </div>
-
-          <div style={{
-            marginTop: 16, fontSize: 11, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6,
-            borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12,
-          }}>
-            github.com/sujalarora03/Personal-Planner
-          </div>
-        </motion.div>
-
-        {/* ── Updates card ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }}
-          className="glass" style={{ padding: 24, gridColumn: '1 / -1' }}>
-
-          <div style={{
-            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1,
-            color: 'rgba(255,255,255,0.35)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <RefreshCw size={12} /> Software Updates
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}>
-                Current version: <strong style={{ color: 'white' }}>v{installedVersion || '0.8.10'}</strong>
-                <span style={{
-                  marginLeft: 8, background: 'rgba(124,58,237,0.2)', color: '#a78bfa',
-                  padding: '1px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700,
-                }}>BETA</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6 }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+                {backupConfig.last_backup ? (
+                  <span>Last backup run: <strong style={{ color: '#60a5fa' }}>{new Date(backupConfig.last_backup).toLocaleString()}</strong></span>
+                ) : (
+                  <span>No backup has run yet</span>
+                )}
               </div>
-              {!updateResult && !checking && (
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
-                  Checking for updates…
-                </div>
-              )}
-
-              {/* Result states */}
-              {isUpToDate && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8,
-                  color: '#34d399', fontSize: 13, fontWeight: 600 }}>
-                  <CheckCircle2 size={15} /> You're on the latest version!
-                </div>
-              )}
-              {hasUpdate && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6,
-                    color: '#fbbf24', fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                    <Info size={15} />
-                    v{updateResult.latest} is available — you have v{updateResult.current}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      onClick={startInstall}
-                      disabled={installing}
-                      className="btn btn-purple btn-sm"
-                      style={{ background: 'rgba(16,185,129,0.25)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>
-                      {installing
-                        ? <><RefreshCw size={11} style={{ animation: 'spin 0.8s linear infinite' }} /> Downloading &amp; Installing…</>
-                        : <>⬇ Download &amp; Install Now</>}
-                    </button>
-                    <button
-                      onClick={() => openUrl(RELEASES_URL)}
-                      className="btn btn-ghost btn-sm">
-                      <ExternalLink size={11} /> View on GitHub
-                    </button>
-                  </div>
-                  {!installing && (
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 8 }}>
-                      The app will close and reinstall silently, then reopen.
-                    </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" onClick={runManualBackup} disabled={manualBackupRunning} style={{ color: '#60a5fa', borderColor: 'rgba(96,165,250,0.3)' }}>
+                  {manualBackupRunning ? (
+                    <><RefreshCw size={12} className="spinner-ring" style={{ animation: 'spin 1s linear infinite' }} /> Backing up...</>
+                  ) : (
+                    'Run Manual Backup Now'
                   )}
-                </div>
-              )}
-              {isError && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8,
-                  color: '#f87171', fontSize: 13 }}>
-                  <AlertCircle size={15} /> Couldn't reach GitHub. Check your internet connection.
-                </div>
-              )}
+                </button>
+                <button className="btn btn-purple btn-sm" onClick={saveBackup} disabled={savingBackup}>
+                  {savingBackup ? <><RefreshCw size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> Saving…</> : <><Save size={12} /> Save Config</>}
+                </button>
+              </div>
             </div>
 
-            <button
-              className="btn btn-purple"
-              onClick={checkForUpdate}
-              disabled={checking}
-              style={{ flexShrink: 0 }}>
-              {checking
-                ? <><RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> Checking…</>
-                : <><RefreshCw size={13} /> Check for Updates</>}
-            </button>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 4 }}>
+              ℹ️ The system retains only the last 5 backup database files in the destination folder to conserve storage.
+            </div>
           </div>
         </motion.div>
 
-        {/* ── Tech stack card ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.14 }}
-          className="glass" style={{ padding: 24, gridColumn: '1 / -1' }}>
-
-          <div style={{
-            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1,
-            color: 'rgba(255,255,255,0.35)', marginBottom: 14,
-          }}>
-            Built With
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {/* ── Privacy ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass" style={{ padding: 24 }}>
+          <SectionHeader icon={Shield} title="Privacy & Security" color="#818cf8" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
-              ['⚛️', 'React 18'],   ['⚡', 'Vite'],          ['🐍', 'Python / FastAPI'],
-              ['🗄️', 'SQLite'],     ['🤖', 'llama-cpp-python'], ['🎵', 'yt-dlp'],
-              ['🖥️', 'PyWebView'], ['📦', 'PyInstaller'],    ['🔧', 'Inno Setup'],
-            ].map(([emoji, name]) => (
-              <span key={name} style={{
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)',
-                borderRadius: 8, padding: '5px 12px', fontSize: 12, color: 'rgba(255,255,255,0.6)',
-                display: 'flex', alignItems: 'center', gap: 5,
-              }}>
-                {emoji} {name}
-              </span>
+              { icon: '🔒', title: 'Zero Cloud', desc: 'Your data never leaves your machine. No servers, no sync, no telemetry.' },
+              { icon: '🤖', title: 'Local AI Only', desc: 'The LLM runs entirely on your GPU/CPU via llama-cpp-python. No API keys, no subscriptions.' },
+              { icon: '📦', title: 'Open Source', desc: 'You can audit every line of code on GitHub — no hidden functionality.' },
+            ].map(item => (
+              <div key={item.title} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'white' }}>{item.title}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.5 }}>{item.desc}</div>
+                </div>
+              </div>
             ))}
           </div>
         </motion.div>

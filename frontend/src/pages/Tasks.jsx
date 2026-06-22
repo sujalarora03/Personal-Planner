@@ -160,7 +160,28 @@ export default function Tasks() {
       </div>
 
       {/* Task list or Kanban board */}
-      {viewMode === 'board' ? (
+      {loading ? (
+        viewMode === 'board' ? (
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {['Todo', 'In Progress', 'Done'].map(col => (
+              <div key={col} className="glass" style={{ display:'flex', flexDirection:'column', height: '100%', borderRadius: 16, padding: 16, gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div className="skeleton" style={{ width: 80, height: 16 }} />
+                  <div className="skeleton" style={{ width: 24, height: 16, borderRadius: 12 }} />
+                </div>
+                <div className="skeleton" style={{ height: 120 }} />
+                <div className="skeleton" style={{ height: 90 }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="glass skeleton" style={{ height: 72 }} />
+            ))}
+          </div>
+        )
+      ) : viewMode === 'board' ? (
         /* ── Kanban Board ─────────────────────────────────────────── */
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {['Todo', 'In Progress', 'Done'].map(col => {
@@ -270,13 +291,27 @@ export default function Tasks() {
       ) : (
         /* ── List View ────────────────────────────────────────────── */
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-        {loading ? (
-          <div className="page-loading"><div className="spinner-ring" /><span>Loading tasks…</span></div>
-        ) : (
           <>
             {visible.length === 0 && (
-              <div className="glass" style={{ padding:40, textAlign:'center', color:'rgba(255,255,255,0.3)' }}>
-                No tasks found. {filter === 'All' && <button className="btn btn-purple btn-sm" style={{ marginLeft:12 }} onClick={() => setShowAdd(true)}>Add your first task</button>}
+              <div className="glass" style={{ padding: '60px 40px', textAlign: 'center', marginBottom: 20 }}>
+                {filter !== 'All' || catFilter !== 'All' || projFilter !== 'All' ? (
+                  <>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'white', marginBottom: 8 }}>No matching tasks</div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Try clearing your filters or select another category</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 56, marginBottom: 16 }}>📋</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8 }}>Get things done</div>
+                    <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
+                      Organize your work, set priorities, and track progress. Add your tasks here to stay on top of your day.
+                    </div>
+                    <button className="btn btn-purple" onClick={() => setShowAdd(true)}>
+                      <Plus size={16} /> Add your first task
+                    </button>
+                  </>
+                )}
               </div>
             )}
         {visible.map((task, i) => {
@@ -323,7 +358,6 @@ export default function Tasks() {
           )
         })}
           </>
-        )}
       </div>
       )} {/* end list/board */}
 

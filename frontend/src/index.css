@@ -3,6 +3,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
+  /* Accent theme — can be swapped via JS by writing to data-theme on <html> */
+  --accent:        #8b5cf6;
+  --accent-hover:  #7c3aed;
+  --accent-glow:   rgba(139, 92, 246, 0.15);
+  --accent-border: rgba(139, 92, 246, 0.3);
+
   --purple-glow: rgba(139, 92, 246, 0.15);
   --purple-border: rgba(139, 92, 246, 0.3);
   --purple: #8b5cf6;
@@ -25,6 +31,13 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
+
+/* Theme presets applied via data-theme on <html> */
+[data-theme="ocean"]  { --accent: #06b6d4; --accent-hover: #0891b2; --accent-glow: rgba(6,182,212,0.15); --accent-border: rgba(6,182,212,0.3); }
+[data-theme="rose"]   { --accent: #f43f5e; --accent-hover: #e11d48; --accent-glow: rgba(244,63,94,0.15);  --accent-border: rgba(244,63,94,0.3); }
+[data-theme="amber"]  { --accent: #f59e0b; --accent-hover: #d97706; --accent-glow: rgba(245,158,11,0.15); --accent-border: rgba(245,158,11,0.3); }
+[data-theme="forest"] { --accent: #10b981; --accent-hover: #059669; --accent-glow: rgba(16,185,129,0.15); --accent-border: rgba(16,185,129,0.3); }
+
 
 * {
   box-sizing: border-box;
@@ -502,4 +515,16 @@ aside[data-collapsed='true'] .nav-btn:hover {
   0% { transform: translate(0px, 0px) scale(1); }
   50% { transform: translate(-50px, -70px) scale(1.20); }
   100% { transform: translate(60px, 50px) scale(0.95); }
+}
+
+/* Shimmer Skeleton Loaders */
+@keyframes shimmer-move {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.015) 25%, rgba(255, 255, 255, 0.065) 50%, rgba(255, 255, 255, 0.015) 75%);
+  background-size: 200% 100%;
+  animation: shimmer-move 1.6s infinite linear;
+  border-radius: 12px;
 }

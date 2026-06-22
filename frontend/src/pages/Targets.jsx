@@ -75,12 +75,33 @@ export default function Targets() {
       </div>
 
       {loading ? (
-        <div className="page-loading"><div className="spinner-ring" /><span>Loading goals…</span></div>
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="glass skeleton" style={{ height: 120 }} />
+          ))}
+        </div>
       ) : (
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
         {targets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase())).length === 0 && (
-          <div className="glass" style={{ padding:40, textAlign:'center', color:'rgba(255,255,255,0.3)' }}>
-            {search ? `No goals match "${search}"` : `No goals yet. Set your first target for ${year}!`}
+          <div className="glass" style={{ padding: '60px 40px', textAlign: 'center' }}>
+            {search ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'white', marginBottom: 8 }}>No matching goals</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Try a different search query</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 56, marginBottom: 16 }}>🎯</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8 }}>Set your {year} targets</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
+                  Define long-term aspirations, track metric completions, and measure progress throughout the year.
+                </div>
+                <button className="btn btn-purple" onClick={() => setShowAdd(true)}>
+                  <Plus size={16} /> Add your first goal
+                </button>
+              </>
+            )}
           </div>
         )}
         {targets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase())).map((t, i) => {

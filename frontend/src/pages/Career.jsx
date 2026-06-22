@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, Trash2, CheckCircle, HelpCircle, Award, Sparkles, RefreshCw } from 'lucide-react'
+import { Upload, Trash2, CheckCircle, HelpCircle, Award, Sparkles, RefreshCw, GraduationCap } from 'lucide-react'
 import { api } from '../api/client'
 import toast from 'react-hot-toast'
 
@@ -216,11 +216,14 @@ export default function Career() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
           <div style={{
             width: 44, height: 44, borderRadius: 14,
-            background: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
+            background: 'linear-gradient(135deg, var(--accent, #8b5cf6) 0%, var(--accent-hover, #7c3aed) 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, flexShrink: 0,
-            boxShadow: '0 4px 16px rgba(124,58,237,0.4)'
-          }}>🎓</div>
+            flexShrink: 0,
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 4px 16px var(--accent-glow)'
+          }}>
+            <GraduationCap size={22} color="white" />
+          </div>
           <div>
             <h1 className="page-title" style={{ margin: 0 }}>Career Coach</h1>
             <p className="page-sub" style={{ margin: 0 }}>Private Local AI Assistant — custom tailors career strategies based on your resume and goals</p>

@@ -6,6 +6,7 @@ import toast, { Toaster } from 'react-hot-toast'
 import { Download, X, Play, Pause, Music, Volume2, VolumeX } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import AuroraBackground from './components/AuroraBackground'
+import CommandPalette from './components/CommandPalette'
 import { api } from './api/client'
 import Home       from './pages/Home'
 import Profile    from './pages/Profile'
@@ -24,6 +25,19 @@ import Notes      from './pages/Notes'
 import Planner    from './pages/Planner'
 import Updates    from './pages/Updates'
 import About      from './pages/About'
+import Analytics  from './pages/Analytics'
+import CalendarView from './pages/CalendarView'
+import Achievements from './pages/Achievements'
+import Settings from './pages/Settings'
+import WeeklyReview from './pages/WeeklyReview'
+
+// Apply saved accent theme on startup (before React render)
+;(() => {
+  const theme = localStorage.getItem('pp_theme')
+  if (theme && theme !== 'purple') {
+    document.documentElement.setAttribute('data-theme', theme)
+  }
+})()
 
 const pageVariants = {
   initial: { opacity: 0, scale: 0.97, y: 10 },
@@ -270,6 +284,10 @@ function AnimatedRoutes({
           <Route path="/courses"    element={<Courses />} />
           <Route path="/career"     element={<Career />} />
           <Route path="/ai"         element={<AI />} />
+          <Route path="/analytics"  element={<Analytics />} />
+          <Route path="/calendar"   element={<CalendarView />} />
+          <Route path="/achievements" element={<Achievements />} />
+          <Route path="/settings"   element={<Settings />} />
           <Route path="/relax"      element={
             <Relax
               globalSongs={globalSongs}
@@ -287,6 +305,7 @@ function AnimatedRoutes({
           } />
           <Route path="/updates"    element={<Updates />} />
           <Route path="/about"     element={<About />} />
+          <Route path="/weekly-review" element={<WeeklyReview />} />
           <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
       </motion.div>
@@ -445,6 +464,19 @@ function AppShell() {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [updateInfo, setUpdateInfo]         = useState(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false)
+
+  // Global Ctrl+K / Cmd+K shortcut
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdPaletteOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Pomodoro Focus Timer global states
   const [focusMins, setFocusMins] = useState(() => {
@@ -1007,6 +1039,11 @@ function AppShell() {
         />,
         pipWindow.document.body
       )}
+      <AnimatePresence>
+        {cmdPaletteOpen && (
+          <CommandPalette open={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} />
+        )}
+      </AnimatePresence>
     </>
   )
 }

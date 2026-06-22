@@ -12,9 +12,10 @@ export default function WorkHours() {
   const [sessions, setSessions] = useState([])
   const [weekly,   setWeekly]   = useState([])
   const [projects, setProjects] = useState([])
+  const [tasks,    setTasks]    = useState([])
   const [showAdd,  setShowAdd]  = useState(false)
   const [loading,  setLoading]  = useState(true)
-  const [form, setForm] = useState({ logHours:1, logMins:0, description:'', category:'Work', date:'', project_id:'' })
+  const [form, setForm] = useState({ logHours:1, logMins:0, description:'', category:'Work', date:'', project_id:'', task_id:'' })
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }))
 
   const load = async () => {
@@ -24,6 +25,7 @@ export default function WorkHours() {
         api.getWorkHours(30).then(setSessions),
         api.getWeekly().then(d => setWeekly(d.map(r => ({ ...r, hours: +(r.total_minutes/60).toFixed(1) })))),
         api.getProjects().then(setProjects),
+        api.getTasks().then(setTasks),
       ])
     } finally {
       setLoading(false)
@@ -38,10 +40,15 @@ export default function WorkHours() {
     e.preventDefault()
     const totalMinutes = (parseInt(form.logHours) || 0) * 60 + (parseInt(form.logMins) || 0)
     if (totalMinutes < 1) { toast.error('Duration must be at least 1 minute'); return }
-    await api.logWork({ ...form, duration_minutes: totalMinutes, project_id: form.project_id || null })
+    await api.logWork({ 
+      ...form, 
+      duration_minutes: totalMinutes, 
+      project_id: form.project_id || null,
+      task_id: form.task_id || null
+    })
     toast.success('Work session logged!')
     setShowAdd(false)
-    setForm({ logHours:1, logMins:0, description:'', category:'Work', date:'', project_id:'' })
+    setForm({ logHours:1, logMins:0, description:'', category:'Work', date:'', project_id:'', task_id:'' })
     load()
   }
 
@@ -75,7 +82,11 @@ export default function WorkHours() {
       {/* Session list */}
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         {loading ? (
-          <div className="page-loading"><div className="spinner-ring" /><span>Loading sessions…</span></div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {[1, 2, 3].map(i => (
+              <div key={i} className="glass skeleton" style={{ height: 76 }} />
+            ))}
+          </div>
         ) : sessions.map((s, i) => {
           const hh = Math.floor(s.duration_minutes/60), mm = s.duration_minutes%60
           return (
@@ -95,6 +106,7 @@ export default function WorkHours() {
                 <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', marginTop:2 }}>
                   {s.date} · <span className="badge" style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.5)' }}>{s.category}</span>
                   {s.project_name && <span className="badge" style={{ background:'rgba(124,58,237,0.12)', color:'#a78bfa', marginLeft:4 }}>📁 {s.project_name}</span>}
+                  {s.task_title && <span className="badge" style={{ background:'rgba(6,182,212,0.12)', color:'#22d3ee', marginLeft:4 }}>🎯 {s.task_title}</span>}
                 </div>
               </div>
               <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}><Trash2 size={13}/></button>
@@ -132,13 +144,18 @@ export default function WorkHours() {
               <div><label style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>Date</label>
                 <input type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
             </div>
-            {projects.length > 0 && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <div><label style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>Project (optional)</label>
                 <select value={form.project_id} onChange={e => set('project_id', e.target.value)}>
                   <option value="">— No project —</option>
                   {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select></div>
-            )}
+              <div><label style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>Task (optional)</label>
+                <select value={form.task_id} onChange={e => set('task_id', e.target.value)}>
+                  <option value="">— No task —</option>
+                  {tasks.filter(t => t.status !== 'Done').map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                </select></div>
+            </div>
             <div style={{ display:'flex', gap:10, marginTop:6 }}>
               <button type="submit" className="btn btn-purple" style={{ flex:1 }}>Log It</button>
               <button type="button" className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
