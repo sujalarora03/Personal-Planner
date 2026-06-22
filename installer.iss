@@ -55,7 +55,6 @@ InfoAfterFile=
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} v{#AppVersion}
 CloseApplications=yes
-ConfirmUninstall=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -114,7 +113,6 @@ Type: filesandsubdirs; Name: "{app}"
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
-  UninstallConfirmed: Boolean;
   DeletePersonalData: Boolean;
   DeleteModelData: Boolean;
 
@@ -177,28 +175,34 @@ end;
 
 function InitializeUninstall: Boolean;
 var
+  ResultCode: Integer;
+begin
+  // Forcefully close any running instance of the app at start of uninstall to release locks
+  Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := True;
+end;
+
+procedure InitializeUninstallProgressForm;
+var
   Form: TSetupForm;
   PromptLabel: TLabel;
   DataCheck, ModelCheck: TNewCheckBox;
-  OKButton, CancelButton: TNewButton;
-  ResultCode: Integer;
+  OKButton: TNewButton;
 begin
-  Result := False; // Assume cancel by default
-  UninstallConfirmed := False;
-  DeletePersonalData := False;
+  // Set defaults
+  DeletePersonalData := True;
   DeleteModelData := False;
 
-  if UninstallSilent then begin
-    // Kill the application processes silently to release file locks
-    Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Result := True;
-    Exit;
-  end;
+  if UninstallSilent then Exit;
+
+  // Move the standard progress form off-screen temporarily
+  UninstallProgressForm.Left := -1000;
+  UninstallProgressForm.Top := -1000;
 
   Form := CreateCustomForm;
   Form.ClientWidth := ScaleX(420);
-  Form.ClientHeight := ScaleY(220);
-  Form.Caption := 'Confirm Uninstall';
+  Form.ClientHeight := ScaleY(180);
+  Form.Caption := 'Uninstall Options';
   Form.Position := poScreenCenter;
   
   PromptLabel := TLabel.Create(Form);
@@ -209,13 +213,13 @@ begin
   PromptLabel.Height := ScaleY(40);
   PromptLabel.AutoSize := False;
   PromptLabel.WordWrap := True;
-  PromptLabel.Caption := 'Are you sure you want to completely remove Personal Planner and all of its components?';
+  PromptLabel.Caption := 'Select additional components to remove from your system:';
   PromptLabel.Font.Style := [fsBold];
 
   DataCheck := TNewCheckBox.Create(Form);
   DataCheck.Parent := Form;
   DataCheck.Left := ScaleX(16);
-  DataCheck.Top := ScaleY(70);
+  DataCheck.Top := ScaleY(60);
   DataCheck.Width := ScaleX(388);
   DataCheck.Caption := 'Delete all personal planner data (tasks, goals, work sessions, settings)';
   DataCheck.Checked := True;
@@ -223,42 +227,34 @@ begin
   ModelCheck := TNewCheckBox.Create(Form);
   ModelCheck.Parent := Form;
   ModelCheck.Left := ScaleX(16);
-  ModelCheck.Top := ScaleY(100);
+  ModelCheck.Top := ScaleY(85);
   ModelCheck.Width := ScaleX(388);
   ModelCheck.Caption := 'Delete the offline local AI LLM model (~2.0 GB)';
   ModelCheck.Checked := False;
 
   OKButton := TNewButton.Create(Form);
   OKButton.Parent := Form;
-  OKButton.Left := ScaleX(240);
-  OKButton.Top := ScaleY(150);
+  OKButton.Left := ScaleX(325);
+  OKButton.Top := ScaleY(125);
   OKButton.Width := ScaleX(75);
   OKButton.Height := ScaleY(25);
-  OKButton.Caption := '&Yes';
+  OKButton.Caption := '&Continue';
   OKButton.ModalResult := mrYes;
   OKButton.Default := True;
 
-  CancelButton := TNewButton.Create(Form);
-  CancelButton.Parent := Form;
-  CancelButton.Left := ScaleX(325);
-  CancelButton.Top := ScaleY(150);
-  CancelButton.Width := ScaleX(75);
-  CancelButton.Height := ScaleY(25);
-  CancelButton.Caption := '&No';
-  CancelButton.ModalResult := mrNo;
+  Form.ActiveControl := OKButton;
 
-  Form.ActiveControl := CancelButton; // Safe default
+  // Show the form modal (blocks uninstaller thread until clicked)
+  Form.ShowModal;
 
-  if Form.ShowModal = mrYes then begin
-    UninstallConfirmed := True;
-    DeletePersonalData := DataCheck.Checked;
-    DeleteModelData := ModelCheck.Checked;
+  // Retrieve checkbox states
+  DeletePersonalData := DataCheck.Checked;
+  DeleteModelData := ModelCheck.Checked;
 
-    // Forcefully close any running instance of the app to release file locks
-    Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-
-    Result := True;
-  end;
+  // Restore progress form position
+  UninstallProgressForm.Left := Form.Left;
+  UninstallProgressForm.Top := Form.Top;
+  UninstallProgressForm.Visible := True;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
