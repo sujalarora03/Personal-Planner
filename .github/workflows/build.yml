@@ -110,6 +110,6 @@ jobs:
             - Windows 10 or later (64-bit)
             - ~200 MB disk space
           draft: false
-          prerelease: true
+          prerelease: false
           files: |
             Output/PersonalPlannerSetup_v${{ steps.version.outputs.ver }}.exe
