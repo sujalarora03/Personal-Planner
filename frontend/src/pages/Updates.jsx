@@ -11,6 +11,7 @@ export default function Updates() {
   // Update State
   const [checking, setChecking] = useState(false)
   const [updateInfo, setUpdateInfo] = useState(null)
+  const [installedVersion, setInstalledVersion] = useState('')
   const [downloadState, setDownloadState] = useState({ status: 'idle', progress: 0, error_message: '' })
   
   // Local LLM State
@@ -27,6 +28,7 @@ export default function Updates() {
   const llmPollRef = useRef(null)
 
   useEffect(() => {
+    api.getVersion().then(data => setInstalledVersion(data.version)).catch(() => {})
     checkUpdatesSilent()
     loadLlmStatus()
 
@@ -41,9 +43,7 @@ export default function Updates() {
   const checkUpdatesSilent = async () => {
     try {
       const data = await api.checkUpdate()
-      if (data?.available) {
-        setUpdateInfo(data)
-      }
+      setUpdateInfo(data)
     } catch (_) {}
   }
 
@@ -202,7 +202,9 @@ export default function Updates() {
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.04)', marginBottom: 20 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Installed Version</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>v0.8.7</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>
+                  v{installedVersion || updateInfo?.current || '0.8.7'}
+                </div>
               </div>
               <button 
                 className="btn btn-ghost" 

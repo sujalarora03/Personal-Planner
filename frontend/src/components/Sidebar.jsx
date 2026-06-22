@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import logoImg from '../assets/logo.png'
+import { api } from '../api/client'
 import {
   Home, LayoutDashboard, CheckSquare, Clock, Rocket,
   Target, BookOpen, GraduationCap, Bot, User, Headphones,
@@ -35,6 +36,11 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
   const navigate    = useNavigate()
   const { pathname } = useLocation()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    api.getVersion().then(data => setVersion(data.version)).catch(() => {})
+  }, [])
 
   // Publish width as CSS variable so other elements (e.g. update banner) can track it
   useEffect(() => {
@@ -92,7 +98,7 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
                 <span style={{
                   background: 'rgba(139,92,246,0.2)', color: '#c084fc',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v0.8.7</span>
+                }}>v{version || '0.8.7'}</span>
               </div>
             </div>
           )}

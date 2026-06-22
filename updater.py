@@ -134,7 +134,7 @@ def run_installer_and_exit(installer_path: str) -> None:
         cmd = f'ping 127.0.0.1 -n 4 > nul && "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"'
         
     subprocess.Popen(
-        ["cmd.exe", "/c", cmd],
+        f'cmd.exe /c "{cmd}"',
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     os._exit(0)

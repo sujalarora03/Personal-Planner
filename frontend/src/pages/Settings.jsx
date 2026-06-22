@@ -18,9 +18,11 @@ export default function Settings() {
   const [checking, setChecking]         = useState(false)
   const [updateResult, setUpdateResult] = useState(null) // null | { available, latest, current } | 'error'
   const [installing, setInstalling]     = useState(false)
+  const [installedVersion, setInstalledVersion] = useState('')
 
   // Auto-check when the user opens this tab
   useEffect(() => {
+    api.getVersion().then(data => setInstalledVersion(data.version)).catch(() => {})
     checkForUpdate()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -99,7 +101,7 @@ export default function Settings() {
                 <span style={{
                   background: 'rgba(124,58,237,0.25)', color: '#a78bfa',
                   padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                }}>v0.8.7 BETA</span>
+                }}>v{installedVersion || '0.8.7'} BETA</span>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>
                   Your local-first AI life planner
                 </span>
@@ -229,7 +231,7 @@ export default function Settings() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}>
-                Current version: <strong style={{ color: 'white' }}>v0.8.7</strong>
+                Current version: <strong style={{ color: 'white' }}>v{installedVersion || '0.8.7'}</strong>
                 <span style={{
                   marginLeft: 8, background: 'rgba(124,58,237,0.2)', color: '#a78bfa',
                   padding: '1px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700,

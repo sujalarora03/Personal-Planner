@@ -36,6 +36,7 @@ export default function Home() {
   const [todayTasks, setTodayTasks] = useState([])
   const [quote, setQuote]     = useState({ quote: '...', author: null })
   const [quoteLoading, setQuoteLoading] = useState(false)
+  const [version, setVersion] = useState('')
 
   const refreshQuote = () => {
     setQuoteLoading(true)
@@ -46,6 +47,7 @@ export default function Home() {
   }
 
   useEffect(() => {
+    api.getVersion().then(data => setVersion(data.version)).catch(() => {})
     api.getProfile().then(setProfile).catch(() => {})
     api.getDashboard().then(setStats).catch(() => {})
     api.getTodayPlanner().then(d => {
@@ -89,7 +91,7 @@ export default function Home() {
             <span style={{
               background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)',
               color: '#a78bfa', borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 700,
-            }}>v0.8.7 BETA</span>
+            }}>v{version || '0.8.7'} BETA</span>
           </div>
         </motion.div>
 

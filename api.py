@@ -413,6 +413,11 @@ def _bg_pull(model_name: str):
         _pull_status["status"] = "error"
         _pull_status["error"] = str(e)
 
+@app.get("/api/version")
+def get_version():
+    from version import APP_VERSION
+    return {"version": APP_VERSION}
+
 @app.get("/api/update/check")
 def check_update():
     """Check GitHub main branch for a newer version of the app."""

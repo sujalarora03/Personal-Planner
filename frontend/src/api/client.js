@@ -69,6 +69,7 @@ export const api = {
   deleteResume: (id) => req('DELETE', `/resumes/${id}`),
 
   // App updates
+  getVersion: () => req('GET', '/version'),
   checkUpdate: () => req('GET', '/update/check'),
   downloadUpdate: (installerUrl, version) => req('POST', '/update/download', { installer_url: installerUrl, version }),
   downloadUpdateStatus: () => req('GET', '/update/download/status'),

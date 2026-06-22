@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast, { Toaster } from 'react-hot-toast'
 import { Download, X, Play, Pause, Music, Volume2, VolumeX } from 'lucide-react'
@@ -273,6 +273,7 @@ function FirstRunModal({ onClose }) {
 }
 
 function AppShell() {
+  const navigate = useNavigate()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [updateInfo, setUpdateInfo]         = useState(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
@@ -537,14 +538,14 @@ function AppShell() {
                 (you have {updateInfo.current})
               </span>
             </span>
-            <a href={updateInfo.download_url} target="_blank" rel="noreferrer"
+            <button onClick={() => { setUpdateDismissed(true); navigate('/updates'); }}
               style={{
                 background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
                 color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 12,
-                fontWeight: 700, textDecoration: 'none', flexShrink: 0,
+                fontWeight: 700, textDecoration: 'none', flexShrink: 0, cursor: 'pointer',
               }}>
               Download Update →
-            </a>
+            </button>
             <button onClick={() => setUpdateDismissed(true)} style={{
               background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)',
               cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0,
