@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Pause, RotateCcw, SkipForward } from 'lucide-react'
+import { Play, Pause, RotateCcw, SkipForward, Tv } from 'lucide-react'
 import { api } from '../api/client'
 
-const FOCUS_MIN  = 25
-const BREAK_MIN  = 5
-const LONG_BREAK_MIN = 15
 const SESSIONS_BEFORE_LONG = 4
 const CATEGORIES = ['Work', 'Study', 'Personal', 'Exercise', 'Other']
 
@@ -17,6 +14,14 @@ export default function Pomodoro({
   task,
   category,
   projectId,
+  focusMins,
+  breakMins,
+  longBreakMins,
+  updateFocusMins,
+  updateBreakMins,
+  updateLongBreakMins,
+  startPip,
+  pipActive,
   setMode,
   setTimeLeft,
   setRunning,
@@ -35,8 +40,8 @@ export default function Pomodoro({
   }, [])
 
   const totalSecs = () => {
-    if (mode === 'focus') return FOCUS_MIN * 60
-    return (sessions > 0 && sessions % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60
+    if (mode === 'focus') return focusMins * 60
+    return (sessions > 0 && sessions % SESSIONS_BEFORE_LONG === 0 ? longBreakMins : breakMins) * 60
   }
 
   const pct = ((totalSecs() - timeLeft) / totalSecs()) * 100
@@ -50,14 +55,14 @@ export default function Pomodoro({
     <div className="page">
       <div style={{ marginBottom: 24 }}>
         <h1 className="page-title">Focus Timer</h1>
-        <p className="page-sub">{sessions} session{sessions !== 1 ? 's' : ''} completed · {sessions * FOCUS_MIN} min logged today</p>
+        <p className="page-sub">{sessions} session{sessions !== 1 ? 's' : ''} completed · {sessions * focusMins} min logged today</p>
       </div>
 
       {/* Mode tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 36 }}>
         {[
-          ['focus', '🎯 Focus', FOCUS_MIN],
-          ['break', '☕ Break', BREAK_MIN]
+          ['focus', '🎯 Focus', focusMins],
+          ['break', '☕ Break', breakMins]
         ].map(([m, label, mins]) => (
           <button key={m}
             className={`btn btn-sm ${mode === m ? 'btn-purple' : 'btn-ghost'}`}
@@ -101,6 +106,16 @@ export default function Pomodoro({
               {running ? <><Pause size={17} /> Pause</> : <><Play size={17} /> {timeLeft === totalSecs() ? 'Start' : 'Resume'}</>}
             </motion.button>
             <button className="btn btn-ghost" title="Skip to next phase" onClick={skip}><SkipForward size={17} /></button>
+            {window.documentPictureInPicture && (
+              <button 
+                className={`btn ${pipActive ? 'btn-purple' : 'btn-ghost'}`} 
+                title="Mini Timer Window (Picture-in-Picture)" 
+                onClick={startPip}
+                style={pipActive ? { background: `${accent}22`, borderColor: accent, color: accent } : {}}
+              >
+                <Tv size={17} />
+              </button>
+            )}
           </div>
 
           {/* Session dots */}
@@ -149,11 +164,51 @@ export default function Pomodoro({
             </div>
           </div>
 
+          {/* Timer custom settings */}
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 10 }}>TIMER CONFIGURATION</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4, display: 'block' }}>Focus (min)</label>
+                <input 
+                  type="number" 
+                  min={1} 
+                  max={180} 
+                  value={focusMins} 
+                  onChange={e => updateFocusMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4, display: 'block' }}>Break (min)</label>
+                <input 
+                  type="number" 
+                  min={1} 
+                  max={60} 
+                  value={breakMins} 
+                  onChange={e => updateBreakMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4, display: 'block' }}>Long (min)</label>
+                <input 
+                  type="number" 
+                  min={1} 
+                  max={120} 
+                  value={longBreakMins} 
+                  onChange={e => updateLongBreakMins(Math.max(1, parseInt(e.target.value) || 1))} 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} 
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="glass" style={{ marginTop: 20, padding: '12px 14px', background: 'rgba(255,255,255,0.03)' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 8 }}>HOW IT WORKS</div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.7 }}>
-              🎯 Work for <strong style={{ color: '#a78bfa' }}>25 min</strong>, then take a <strong style={{ color: '#22d3ee' }}>5 min break</strong>.<br />
-              Every 4 sessions → <strong style={{ color: '#22d3ee' }}>15 min long break</strong>.<br />
+              🎯 Work for <strong style={{ color: '#a78bfa' }}>{focusMins} min</strong>, then take a <strong style={{ color: '#22d3ee' }}>{breakMins} min break</strong>.<br />
+              Every 4 sessions → <strong style={{ color: '#22d3ee' }}>{longBreakMins} min long break</strong>.<br />
               Completed sessions are <strong style={{ color: '#34d399' }}>auto-logged</strong> to Work Hours.
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast, { Toaster } from 'react-hot-toast'
@@ -43,10 +44,169 @@ const fmtTime = (s) => {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
+function PomodoroPip({
+  mode,
+  timeLeft,
+  running,
+  sessions,
+  focusMins,
+  breakMins,
+  longBreakMins,
+  setRunning,
+  reset,
+  skip,
+}) {
+  const SESSIONS_BEFORE_LONG = 4
+  const totalSecs = () => {
+    if (mode === 'focus') return focusMins * 60
+    return (sessions > 0 && sessions % SESSIONS_BEFORE_LONG === 0 ? longBreakMins : breakMins) * 60
+  }
+
+  const pct = ((totalSecs() - timeLeft) / totalSecs()) * 100
+  const mm = String(Math.floor(timeLeft / 60)).padStart(2, '0')
+  const ss = String(timeLeft % 60).padStart(2, '0')
+  const accent = mode === 'focus' ? '#8b5cf6' : '#06b6d4'
+  const R = 32
+  const circumference = 2 * Math.PI * R
+
+  return (
+    <div style={{
+      width: '100vw',
+      height: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      padding: '0 20px',
+      boxSizing: 'border-box',
+      background: 'linear-gradient(135deg, #111326 0%, #080914 100%)',
+      overflow: 'hidden',
+      gap: 20
+    }}>
+      {/* Left side: Sleek mini progress circle */}
+      <div style={{ position: 'relative', width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width={80} height={80} style={{ transform: 'rotate(-90deg)', position: 'absolute' }}>
+          <circle cx={40} cy={40} r={R} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={4} />
+          <circle cx={40} cy={40} r={R} fill="none" stroke={accent} strokeWidth={4}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - pct / 100)}
+            style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }} />
+        </svg>
+        <span style={{ fontSize: 18 }}>
+          {mode === 'focus' ? '🎯' : '☕'}
+        </span>
+      </div>
+
+      {/* Right side: Time, Status, and Controls */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 32, fontWeight: 900, fontFamily: 'monospace', color: 'white', letterSpacing: -1, lineHeight: 1 }}>
+            {mm}:{ss}
+          </div>
+          <div style={{
+            fontSize: 10,
+            fontWeight: 800,
+            color: accent,
+            background: `${accent}15`,
+            border: `1px solid ${accent}30`,
+            borderRadius: 6,
+            padding: '2px 8px',
+            textTransform: 'uppercase',
+            letterSpacing: 1
+          }}>
+            {mode === 'focus' ? 'Focus' : 'Break'}
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          {/* Pause / Resume */}
+          <button 
+            onClick={() => setRunning(r => !r)} 
+            style={{
+              flex: 1.5,
+              background: accent,
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              padding: '8px 12px',
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              boxShadow: running ? `0 0 12px ${accent}44` : 'none',
+              transition: 'background 0.2s, transform 0.1s'
+            }}
+          >
+            {running ? (
+              <>
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2.5" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                Pause
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2.5" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Resume
+              </>
+            )}
+          </button>
+          
+          {/* Restart */}
+          <button 
+            onClick={reset} 
+            style={{
+              width: 32,
+              height: 32,
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'rgba(255,255,255,0.8)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s'
+            }}
+            title="Restart Timer"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          </button>
+
+          {/* Skip / Next */}
+          <button 
+            onClick={skip} 
+            style={{
+              width: 32,
+              height: 32,
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'rgba(255,255,255,0.8)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s'
+            }}
+            title="Skip to next phase"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="currentColor" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AnimatedRoutes({
   // Pomodoro timer states & handlers
   pomodoroMode, pomodoroTimeLeft, pomodoroRunning, pomodoroSessions,
   pomodoroTask, pomodoroCategory, pomodoroProjectId,
+  focusMins, breakMins, longBreakMins,
+  updateFocusMins, updateBreakMins, updateLongBreakMins,
+  startPip, pipActive,
   setPomodoroMode, setPomodoroTimeLeft, setPomodoroRunning, setPomodoroSessions,
   setPomodoroTask, setPomodoroCategory, setPomodoroProjectId,
   resetPomodoro, skipPomodoro, switchPomodoroMode,
@@ -83,6 +243,14 @@ function AnimatedRoutes({
               task={pomodoroTask}
               category={pomodoroCategory}
               projectId={pomodoroProjectId}
+              focusMins={focusMins}
+              breakMins={breakMins}
+              longBreakMins={longBreakMins}
+              updateFocusMins={updateFocusMins}
+              updateBreakMins={updateBreakMins}
+              updateLongBreakMins={updateLongBreakMins}
+              startPip={startPip}
+              pipActive={pipActive}
               setMode={setPomodoroMode}
               setTimeLeft={setPomodoroTimeLeft}
               setRunning={setPomodoroRunning}
@@ -279,18 +447,134 @@ function AppShell() {
   const [updateDismissed, setUpdateDismissed] = useState(false)
 
   // Pomodoro Focus Timer global states
+  const [focusMins, setFocusMins] = useState(() => {
+    const saved = localStorage.getItem('pomodoro_focus_mins')
+    return saved ? parseInt(saved, 10) : 25
+  })
+  const [breakMins, setBreakMins] = useState(() => {
+    const saved = localStorage.getItem('pomodoro_break_mins')
+    return saved ? parseInt(saved, 10) : 5
+  })
+  const [longBreakMins, setLongBreakMins] = useState(() => {
+    const saved = localStorage.getItem('pomodoro_long_break_mins')
+    return saved ? parseInt(saved, 10) : 15
+  })
+
   const [pomodoroMode, setPomodoroMode]         = useState('focus')
-  const [pomodoroTimeLeft, setPomodoroTimeLeft] = useState(25 * 60)
+  const [pomodoroTimeLeft, setPomodoroTimeLeft] = useState(() => {
+    const saved = localStorage.getItem('pomodoro_focus_mins')
+    return (saved ? parseInt(saved, 10) : 25) * 60
+  })
   const [pomodoroRunning, setPomodoroRunning]   = useState(false)
   const [pomodoroSessions, setPomodoroSessions] = useState(0)
   const [pomodoroTask, setPomodoroTask]         = useState('')
   const [pomodoroCategory, setPomodoroCategory] = useState('Work')
   const [pomodoroProjectId, setPomodoroProjectId] = useState('')
 
-  const FOCUS_MIN  = 25
-  const BREAK_MIN  = 5
-  const LONG_BREAK_MIN = 15
   const SESSIONS_BEFORE_LONG = 4
+
+  const updateFocusMins = (mins) => {
+    setFocusMins(mins)
+    localStorage.setItem('pomodoro_focus_mins', mins)
+    if (pomodoroMode === 'focus' && !pomodoroRunning) {
+      setPomodoroTimeLeft(mins * 60)
+    }
+  }
+  const updateBreakMins = (mins) => {
+    setBreakMins(mins)
+    localStorage.setItem('pomodoro_break_mins', mins)
+    if (pomodoroMode === 'break' && !pomodoroRunning) {
+      const isLong = pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0
+      if (!isLong) setPomodoroTimeLeft(mins * 60)
+    }
+  }
+  const updateLongBreakMins = (mins) => {
+    setLongBreakMins(mins)
+    localStorage.setItem('pomodoro_long_break_mins', mins)
+    if (pomodoroMode === 'break' && !pomodoroRunning) {
+      const isLong = pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0
+      if (isLong) setPomodoroTimeLeft(mins * 60)
+    }
+  }
+
+  // Picture-in-Picture window state
+  const [pipWindow, setPipWindow] = useState(null)
+
+  const startPip = async () => {
+    if (!window.documentPictureInPicture) {
+      toast.error("Picture-in-Picture not supported in this environment")
+      return
+    }
+    if (pipWindow) {
+      pipWindow.close()
+      return
+    }
+    try {
+      const pip = await window.documentPictureInPicture.requestWindow({
+        width: 320,
+        height: 180,
+      })
+
+      // Copy stylesheets to PiP document
+      const styleSheets = Array.from(document.styleSheets)
+      for (const sheet of styleSheets) {
+        try {
+          const cssRules = Array.from(sheet.cssRules)
+            .map(rule => rule.cssText)
+            .join('')
+          const style = document.createElement('style')
+          style.textContent = cssRules
+          pip.document.head.appendChild(style)
+        } catch (e) {
+          const link = document.createElement('link')
+          link.rel = 'stylesheet'
+          link.href = sheet.href
+          pip.document.head.appendChild(link)
+        }
+      }
+
+      // Add basic reset and style to PiP window
+      const baseStyle = pip.document.createElement('style')
+      baseStyle.textContent = `
+        body {
+          margin: 0;
+          padding: 0;
+          background: #0b0c16;
+          color: white;
+          font-family: 'Segoe UI', system-ui, sans-serif;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+        }
+      `
+      pip.document.head.appendChild(baseStyle)
+
+      pip.addEventListener('pagehide', () => {
+        setPipWindow(null)
+      })
+
+      setPipWindow(pip)
+    } catch (err) {
+      console.error(err)
+      toast.error("Failed to open Picture-in-Picture")
+    }
+  }
+
+  // Show PiP tip on start
+  useEffect(() => {
+    if (pomodoroRunning) {
+      const tipShown = localStorage.getItem('pp_pip_tip_shown')
+      if (!tipShown && window.documentPictureInPicture) {
+        toast('Tip: Click the PIP button to keep the timer always on top!', {
+          icon: '📺',
+          duration: 6000
+        })
+        localStorage.setItem('pp_pip_tip_shown', 'true')
+      }
+    }
+  }, [pomodoroRunning])
 
   const pomodoroStateRef = useRef({ 
     mode: pomodoroMode, 
@@ -316,19 +600,19 @@ function AppShell() {
       const newS = s + 1
       setPomodoroSessions(newS)
       api.logWork({
-        duration_minutes: FOCUS_MIN,
+        duration_minutes: focusMins,
         description: tk || 'Pomodoro focus session',
         category: cat || 'Work',
         project_id: pid ? +pid : null,
         date: new Date().toISOString().slice(0, 10),
       }).catch(() => {})
-      toast.success(`🍅 Session ${newS} done! ${FOCUS_MIN}min logged to Work Hours.`)
-      const breakSecs = newS % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN * 60 : BREAK_MIN * 60
+      toast.success(`🍅 Session ${newS} done! ${focusMins}min logged to Work Hours.`)
+      const breakSecs = newS % SESSIONS_BEFORE_LONG === 0 ? longBreakMins * 60 : breakMins * 60
       setPomodoroMode('break')
       setPomodoroTimeLeft(breakSecs)
     } else {
       setPomodoroMode('focus')
-      setPomodoroTimeLeft(FOCUS_MIN * 60)
+      setPomodoroTimeLeft(focusMins * 60)
       toast('☕ Break over — ready to focus?', { icon: '🎯' })
     }
   }
@@ -362,7 +646,7 @@ function AppShell() {
   const resetPomodoro = () => {
     clearInterval(pomodoroTimerRef.current)
     setPomodoroRunning(false)
-    setPomodoroTimeLeft(pomodoroMode === 'focus' ? FOCUS_MIN * 60 : (pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60)
+    setPomodoroTimeLeft(pomodoroMode === 'focus' ? focusMins * 60 : (pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0 ? longBreakMins : breakMins) * 60)
   }
 
   const skipPomodoro = () => {
@@ -373,7 +657,7 @@ function AppShell() {
     clearInterval(pomodoroTimerRef.current)
     setPomodoroRunning(false)
     setPomodoroMode(m)
-    setPomodoroTimeLeft(m === 'focus' ? FOCUS_MIN * 60 : (pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0 ? LONG_BREAK_MIN : BREAK_MIN) * 60)
+    setPomodoroTimeLeft(m === 'focus' ? focusMins * 60 : (pomodoroSessions > 0 && pomodoroSessions % SESSIONS_BEFORE_LONG === 0 ? longBreakMins : breakMins) * 60)
   }
 
   // Audio global states
@@ -700,6 +984,21 @@ function AppShell() {
           },
         }}
       />
+      {pipWindow && createPortal(
+        <PomodoroPip 
+          mode={pomodoroMode}
+          timeLeft={pomodoroTimeLeft}
+          running={pomodoroRunning}
+          sessions={pomodoroSessions}
+          focusMins={focusMins}
+          breakMins={breakMins}
+          longBreakMins={longBreakMins}
+          setRunning={setPomodoroRunning}
+          reset={resetPomodoro}
+          skip={skipPomodoro}
+        />,
+        pipWindow.document.body
+      )}
     </>
   )
 }
