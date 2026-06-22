@@ -107,7 +107,7 @@ Filename: "{app}\{#AppExeName}"; \
   Check: WizardSilent
 
 [UninstallDelete]
-Type: filesandsubdirs; Name: "{app}"
+Type: filesandordirs; Name: "{app}"
 
 ; ── Pascal code: download and deploy local AI GGUF model ──────────
 [Code]
