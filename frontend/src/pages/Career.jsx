@@ -212,9 +212,20 @@ export default function Career() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Career Coach 🎓</h1>
-        <p className="page-sub">Private Local AI Assistant — custom tailors career strategies based on your resume and goals</p>
+      <div className="page-header" style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 14,
+            background: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 22, flexShrink: 0,
+            boxShadow: '0 4px 16px rgba(124,58,237,0.4)'
+          }}>🎓</div>
+          <div>
+            <h1 className="page-title" style={{ margin: 0 }}>Career Coach</h1>
+            <p className="page-sub" style={{ margin: 0 }}>Private Local AI Assistant — custom tailors career strategies based on your resume and goals</p>
+          </div>
+        </div>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:20, alignItems:'start' }}>
@@ -353,9 +364,22 @@ export default function Career() {
                           borderRadius: 12, padding: 16, marginTop: 12, overflow: 'hidden'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#c4b5fd', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
-                          <HelpCircle size={15} />
-                          Personalize Career Coach suggestions: Answer these 3 quick questions
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#c4b5fd', fontSize: 13, fontWeight: 700 }}>
+                            <HelpCircle size={15} />
+                            Tell us your career goals — 3 questions to personalize your coaching
+                          </div>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px', opacity: 0.7 }}
+                            onClick={() => initProfileContext(activeId)}
+                            title="Generate fresh questions from your resume"
+                          >
+                            ↺ New Questions
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 14, lineHeight: 1.5 }}>
+                          Your answers help the AI tailor roadmaps and advice specifically to your goals — not just what's on your resume.
                         </div>
 
                         {profileState.questions && profileState.questions.map((q, idx) => (

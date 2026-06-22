@@ -1591,23 +1591,34 @@ def init_resume_profile_endpoint(resume_id: int):
     llm = get_llama_model()
     if not llm:
         raise HTTPException(500, "Local AI model not found")
-        
+
+    # Summarise the resume first so we can reference it in questions
     prompt = (
         "You are an expert career coach. Analyze the following resume content and output a JSON object with exactly two keys:\n"
-        "1. 'summary': A concise summary (3-4 sentences) of their career profile, including their key strengths and experience level.\n"
-        "2. 'questions': An array of exactly 3 highly personalized, specific questions to help them define their target role, industry, or preferred career path (e.g. 'I see you worked with React, are you aiming for fullstack or frontend roles?').\n"
-        "Output ONLY a valid JSON object. No markdown formatting, no code fences, no extra text.\n\n"
+        "1. 'summary': A concise 3-4 sentence career summary covering their current level, key technical strengths, "
+        "domain expertise, and one concrete gap or growth area you notice.\n"
+        "2. 'questions': An array of EXACTLY 3 open-ended, forward-looking questions that help the user define their "
+        "CAREER GOALS — NOT yes/no questions inferred from their past. Each question should invite the user to share "
+        "new information not already in the resume. Cover these three angles:\n"
+        "   a) Target role & company: e.g. 'What job title and type of company (startup/enterprise/remote) are you "
+        "targeting for your next move, and within what timeframe?'\n"
+        "   b) Skills priority: e.g. 'Which skill or technology do you most want to deepen or switch into, "
+        "and why is that important for your goals?'\n"
+        "   c) Career constraint or preference: e.g. 'Are there any hard constraints — like location, salary band, "
+        "industry, or work style — that should shape your career plan?'\n"
+        "Keep questions concise (one sentence each), personal but professional.\n"
+        "Output ONLY a valid JSON object. No markdown, no code fences, no extra text.\n\n"
         f"Resume:\n{content[:6000]}"
     )
     
     try:
         response = llm.create_chat_completion(
             messages=[
-                {"role": "system", "content": "You are a career assistant that outputs strict JSON."},
+                {"role": "system", "content": "You are a career coach. Output only strict JSON."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=512,
-            temperature=0.3
+            max_tokens=600,
+            temperature=0.35
         )
         raw_output = response["choices"][0]["message"]["content"].strip()
         
@@ -1622,19 +1633,29 @@ def init_resume_profile_endpoint(resume_id: int):
             
         summary = parsed.get("summary", "Resume uploaded successfully.")
         questions = parsed.get("questions", [
-            "What is your target role or title for your next job?",
-            "Are there any specific industries or company sizes you prefer?",
-            "What key skills or technologies are you most excited to learn next?"
+            "What job title and type of company are you targeting for your next move, and within what timeframe?",
+            "Which skill or technology do you most want to deepen or switch into, and why is that important for your goals?",
+            "Are there any hard constraints — location, salary band, industry, or work style — that should shape your career plan?"
         ])
+        # Ensure we always have exactly 3 questions
+        if len(questions) < 3:
+            defaults = [
+                "What job title and type of company are you targeting for your next move, and within what timeframe?",
+                "Which skill or technology do you most want to deepen or switch into, and why?",
+                "Are there any hard constraints — location, salary band, or work style — that should shape your career plan?"
+            ]
+            while len(questions) < 3:
+                questions.append(defaults[len(questions)])
+        questions = questions[:3]
         
         db.save_career_profile(resume_id, summary, _json.dumps(questions))
         return {"summary": summary, "questions": questions}
     except Exception as e:
-        fallback_summary = "Professional profile extracted from resume. Please answer a few questions to refine your career goals."
+        fallback_summary = "Professional profile extracted from resume. Answer the questions below to define your career goals."
         fallback_questions = [
-            "What is your target role or title for your next job?",
-            "Are there any specific industries or company sizes you prefer?",
-            "What key skills or technologies are you most excited to learn next?"
+            "What job title and type of company are you targeting for your next move, and within what timeframe?",
+            "Which skill or technology do you most want to deepen or switch into, and why is it important for your goals?",
+            "Are there any hard constraints — location, salary band, industry, or work style — that should shape your career plan?"
         ]
         db.save_career_profile(resume_id, fallback_summary, _json.dumps(fallback_questions))
         return {"summary": fallback_summary, "questions": fallback_questions}
