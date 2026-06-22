@@ -286,7 +286,7 @@ export default function AI() {
 
           {/* Messages */}
           <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:16, paddingBottom:16 }}>
-            {ollamaOk === false && !bannerDismissed && (
+            {ollamaOk === false && !bannerDismissed && !availableModels.some(m => m.endsWith('.gguf')) && (
               <OllamaBanner onDismiss={() => setBannerDismissed(true)} />
             )}
             {messages.length === 0 && (
