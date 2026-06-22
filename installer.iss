@@ -96,10 +96,15 @@ Root: HKCU; \
   Tasks: startuprun
 
 [Run]
-; Launch the app after install
+; Launch the app after install (interactive setup)
 Filename: "{app}\{#AppExeName}"; \
   Description: "Launch {#AppName}"; \
   Flags: nowait postinstall skipifsilent
+
+; Launch the app after install (silent auto-update setup)
+Filename: "{app}\{#AppExeName}"; \
+  Flags: nowait; \
+  Check: WizardSilent
 
 [UninstallDelete]
 Type: dirifempty; Name: "{app}"
@@ -114,10 +119,24 @@ begin
   DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), nil);
 end;
 
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  // Forcefully close any running instance of the app to release file locks
+  Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = wpReady) and IsTaskSelected('download_model') then begin
+  if (CurPageID = wpReady) and WizardIsTaskSelected('download_model') and not WizardSilent then begin
+    // If the model file is already present, skip downloading it again
+    if FileExists(ExpandConstant('{userappdata}\PersonalPlanner\models\qwen2.5-3b-instruct-q4_k_m.gguf')) then begin
+      Exit;
+    end;
+
     DownloadPage.Clear;
     DownloadPage.Add('https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf', 'qwen2.5-3b-instruct-q4_k_m.gguf', '');
     DownloadPage.Show;
@@ -139,7 +158,7 @@ var
   SrcPath, DestDir, DestPath: string;
 begin
   if CurStep <> ssPostInstall then Exit;
-  if not IsTaskSelected('download_model') then Exit;
+  if not WizardIsTaskSelected('download_model') then Exit;
 
   SrcPath := ExpandConstant('{tmp}\qwen2.5-3b-instruct-q4_k_m.gguf');
   DestDir := ExpandConstant('{userappdata}\PersonalPlanner\models');
@@ -147,7 +166,7 @@ begin
   if ForceDirectories(DestDir) then begin
     DestPath := DestDir + '\qwen2.5-3b-instruct-q4_k_m.gguf';
     if FileExists(SrcPath) then begin
-      FileCopy(SrcPath, DestPath, False);
+      CopyFile(SrcPath, DestPath, False);
     end;
   end;
 end;

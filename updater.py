@@ -115,8 +115,8 @@ def run_installer_and_exit(installer_path: str) -> None:
     """Run the installer silently then exit this process.
     Inno Setup /VERYSILENT installs over the existing version without prompts.
     A 2-second delay gives FastAPI time to return the HTTP response first.
-    We launch cmd.exe with a ping delay so that this process can exit fully,
-    preventing file locks, and then restart the app after the installer finishes.
+    The installer handles terminating the current app instance (via taskkill)
+    and restarting the app silent-natively, so we only need to launch it directly.
     """
     import subprocess
     import time
@@ -124,17 +124,9 @@ def run_installer_and_exit(installer_path: str) -> None:
     
     log_path = os.path.join(tempfile.gettempdir(), "pp_update.log")
     
-    # If the app is frozen (built with PyInstaller), we want to restart it after installation
-    if getattr(sys, 'frozen', False):
-        app_exe = sys.executable
-        # Use ping for delay to avoid timeout command stdin redirection issues
-        cmd = f'ping 127.0.0.1 -n 4 > nul && "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}" && start "" "{app_exe}"'
-    else:
-        # Development mode
-        cmd = f'ping 127.0.0.1 -n 4 > nul && "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"'
-        
+    # Run the installer setup directly as a list of arguments without shell wrapping
     subprocess.Popen(
-        f'cmd.exe /c "{cmd}"',
+        [installer_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", f"/LOG={log_path}"],
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     os._exit(0)
