@@ -203,9 +203,7 @@ begin
   UninstallProgressForm.Left := -1000;
   UninstallProgressForm.Top := -1000;
 
-  Form := CreateCustomForm;
-  Form.ClientWidth := ScaleX(420);
-  Form.ClientHeight := ScaleY(180);
+  Form := CreateCustomForm(ScaleX(420), ScaleY(180), False, False);
   Form.Caption := 'Uninstall Options';
   Form.Position := poScreenCenter;
   
