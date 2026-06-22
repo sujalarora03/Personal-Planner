@@ -115,6 +115,18 @@ class Database:
                     FOREIGN KEY (resume_id) REFERENCES resumes(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS career_profile (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resume_id INTEGER UNIQUE,
+                    extracted_context TEXT DEFAULT '',
+                    refined_context TEXT DEFAULT '',
+                    questions_json TEXT DEFAULT '',
+                    answers_json TEXT DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (resume_id) REFERENCES resumes(id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS custom_tables (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     table_name TEXT NOT NULL UNIQUE,
@@ -630,13 +642,26 @@ class Database:
                 'habits':   [dict(r) for r in habits],
             }
 
-    def add_career_suggestion(self, resume_id, suggestion_type, content):
+    def save_career_suggestion(self, resume_id, suggestion_type, content):
         with self.get_connection() as conn:
+            # Overwrite the old suggestion of the same type for this resume
+            conn.execute(
+                'DELETE FROM career_suggestions WHERE resume_id = ? AND suggestion_type = ?',
+                (resume_id, suggestion_type)
+            )
             conn.execute(
                 'INSERT INTO career_suggestions (resume_id, suggestion_type, content) VALUES (?, ?, ?)',
                 (resume_id, suggestion_type, content)
             )
             conn.commit()
+
+    def get_career_suggestion_by_type(self, resume_id, suggestion_type):
+        with self.get_connection() as conn:
+            row = conn.execute(
+                'SELECT * FROM career_suggestions WHERE resume_id = ? AND suggestion_type = ? ORDER BY created_at DESC LIMIT 1',
+                (resume_id, suggestion_type)
+            ).fetchone()
+            return dict(row) if row else None
 
     def get_career_suggestions(self, resume_id=None):
         with self.get_connection() as conn:
@@ -648,6 +673,30 @@ class Database:
             return conn.execute(
                 'SELECT * FROM career_suggestions ORDER BY created_at DESC'
             ).fetchall()
+
+    def get_career_profile(self, resume_id: int):
+        with self.get_connection() as conn:
+            row = conn.execute(
+                'SELECT * FROM career_profile WHERE resume_id = ?',
+                (resume_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def save_career_profile(self, resume_id: int, extracted_context: str, questions_json: str):
+        with self.get_connection() as conn:
+            conn.execute(
+                'INSERT OR REPLACE INTO career_profile (resume_id, extracted_context, questions_json) VALUES (?, ?, ?)',
+                (resume_id, extracted_context, questions_json)
+            )
+            conn.commit()
+
+    def update_career_profile_answers(self, resume_id: int, answers_json: str, refined_context: str):
+        with self.get_connection() as conn:
+            conn.execute(
+                'UPDATE career_profile SET answers_json = ?, refined_context = ?, updated_at = CURRENT_TIMESTAMP WHERE resume_id = ?',
+                (answers_json, refined_context, resume_id)
+            )
+            conn.commit()
 
     # ── DYNAMIC / CUSTOM TABLES ────────────────────────────────────────────
 

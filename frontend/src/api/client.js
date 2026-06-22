@@ -67,6 +67,10 @@ export const api = {
   // Resumes
   getResumes:   () => req('GET', '/resumes'),
   deleteResume: (id) => req('DELETE', `/resumes/${id}`),
+  getCareerProfile:    (resumeId) => req('GET', `/resumes/${resumeId}/profile`),
+  initCareerProfile:   (resumeId) => req('POST', `/resumes/${resumeId}/init-profile`),
+  refineCareerProfile: (resumeId, answers) => req('POST', `/resumes/${resumeId}/refine-profile`, { answers }),
+  getCareerSuggestion: (resumeId, type) => req('GET', `/resumes/${resumeId}/suggestions?type=${encodeURIComponent(type)}`),
 
   // App updates
   getVersion: () => req('GET', '/version'),

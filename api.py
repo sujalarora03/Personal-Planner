@@ -1500,17 +1500,27 @@ async def upload_resume(file: UploadFile = File(...)):
 class AnalyzeRequest(BaseModel):
     resume_id: int
     prompt_type: str = "Skill Gap Analysis"
-    model: str = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
 @app.post("/api/resumes/analyze")
 def analyze_resume(body: AnalyzeRequest):
     content = db.get_resume_content(body.resume_id)
     if not content:
         raise HTTPException(404, "Resume not found")
+
+    # Load career profile context if it exists
+    profile = db.get_career_profile(body.resume_id)
+    context_str = ""
+    if profile:
+        if profile.get("refined_context"):
+            context_str = f"User's Refined Career Context (goals, preferences): {profile['refined_context']}\n\n"
+        elif profile.get("extracted_context"):
+            context_str = f"User's Resume Summary: {profile['extracted_context']}\n\n"
+
     prompt = ANALYSIS_PROMPTS.get(body.prompt_type, ANALYSIS_PROMPTS["Skill Gap Analysis"])
-    full_prompt = f"{prompt}\n\nResume:\n{content[:6000]}"
+    full_prompt = f"{context_str}{prompt}\n\nResume:\n{content[:6000]}"
 
     def stream():
+        full_text = []
         try:
             llm = get_llama_model()
             if not llm:
@@ -1528,11 +1538,166 @@ def analyze_resume(body: AnalyzeRequest):
             for chunk in response:
                 delta = chunk["choices"][0]["delta"]
                 if "content" in delta:
-                    yield delta["content"]
+                    content_chunk = delta["content"]
+                    full_text.append(content_chunk)
+                    yield content_chunk
+            
+            # Save the complete generated content to local cache at stream end
+            final_content = "".join(full_text)
+            if final_content:
+                db.save_career_suggestion(body.resume_id, body.prompt_type, final_content)
+
         except Exception as e:
             yield f"\n⚠ Error: {e}"
 
     return StreamingResponse(stream(), media_type="text/plain")
+
+
+@app.get("/api/resumes/{resume_id}/profile")
+def get_resume_profile_endpoint(resume_id: int):
+    profile = db.get_career_profile(resume_id)
+    if not profile:
+        return {"status": "none"}
+    
+    questions = []
+    if profile.get("questions_json"):
+        try:
+            questions = _json.loads(profile["questions_json"])
+        except Exception:
+            pass
+            
+    answers = []
+    if profile.get("answers_json"):
+        try:
+            answers = _json.loads(profile["answers_json"])
+        except Exception:
+            pass
+
+    return {
+        "status": "ready" if profile.get("refined_context") else "extracted",
+        "summary": profile.get("extracted_context", ""),
+        "refined_context": profile.get("refined_context", ""),
+        "questions": questions,
+        "answers": answers
+    }
+
+
+@app.post("/api/resumes/{resume_id}/init-profile")
+def init_resume_profile_endpoint(resume_id: int):
+    content = db.get_resume_content(resume_id)
+    if not content:
+        raise HTTPException(404, "Resume not found")
+        
+    llm = get_llama_model()
+    if not llm:
+        raise HTTPException(500, "Local AI model not found")
+        
+    prompt = (
+        "You are an expert career coach. Analyze the following resume content and output a JSON object with exactly two keys:\n"
+        "1. 'summary': A concise summary (3-4 sentences) of their career profile, including their key strengths and experience level.\n"
+        "2. 'questions': An array of exactly 3 highly personalized, specific questions to help them define their target role, industry, or preferred career path (e.g. 'I see you worked with React, are you aiming for fullstack or frontend roles?').\n"
+        "Output ONLY a valid JSON object. No markdown formatting, no code fences, no extra text.\n\n"
+        f"Resume:\n{content[:6000]}"
+    )
+    
+    try:
+        response = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": "You are a career assistant that outputs strict JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=512,
+            temperature=0.3
+        )
+        raw_output = response["choices"][0]["message"]["content"].strip()
+        
+        # Parse JSON robustly
+        import re
+        match = re.search(r'(\{.*\})', raw_output, re.DOTALL)
+        if match:
+            parsed = _json.loads(match.group(1))
+        else:
+            cleaned = re.sub(r'```[a-z]*\n?', '', raw_output).strip('`').strip()
+            parsed = _json.loads(cleaned)
+            
+        summary = parsed.get("summary", "Resume uploaded successfully.")
+        questions = parsed.get("questions", [
+            "What is your target role or title for your next job?",
+            "Are there any specific industries or company sizes you prefer?",
+            "What key skills or technologies are you most excited to learn next?"
+        ])
+        
+        db.save_career_profile(resume_id, summary, _json.dumps(questions))
+        return {"summary": summary, "questions": questions}
+    except Exception as e:
+        fallback_summary = "Professional profile extracted from resume. Please answer a few questions to refine your career goals."
+        fallback_questions = [
+            "What is your target role or title for your next job?",
+            "Are there any specific industries or company sizes you prefer?",
+            "What key skills or technologies are you most excited to learn next?"
+        ]
+        db.save_career_profile(resume_id, fallback_summary, _json.dumps(fallback_questions))
+        return {"summary": fallback_summary, "questions": fallback_questions}
+
+
+class RefineRequest(BaseModel):
+    answers: list[str]
+
+@app.post("/api/resumes/{resume_id}/refine-profile")
+def refine_resume_profile_endpoint(resume_id: int, body: RefineRequest):
+    profile = db.get_career_profile(resume_id)
+    if not profile:
+        raise HTTPException(404, "Profile not initialized")
+        
+    extracted_context = profile.get("extracted_context", "")
+    questions_json = profile.get("questions_json", "[]")
+    try:
+        questions = _json.loads(questions_json)
+    except Exception:
+        questions = []
+        
+    answers = body.answers
+    
+    # Construct Q&A text for AI prompt
+    qa_pairs = []
+    for q, a in zip(questions, answers):
+        qa_pairs.append(f"Q: {q}\nA: {a}")
+    qa_text = "\n\n".join(qa_pairs)
+    
+    llm = get_llama_model()
+    if not llm:
+        raise HTTPException(500, "Local AI model not found")
+        
+    prompt = (
+        "You are an expert career coach. Here is the user's initial resume summary and their answers to some career goals questions.\n\n"
+        f"Initial Resume Summary: {extracted_context}\n\n"
+        "Questions and Answers:\n"
+        f"{qa_text}\n\n"
+        "Synthesize this information into a refined career profile context (2-3 paragraphs, around 150-200 words) that describes their current profile, their career objectives, target roles, and what they need to focus on. Make it encouraging and highly personalized. This will be the guiding context for their career roadmaps."
+    )
+    
+    try:
+        response = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": "You are a professional career coach. Write a refined summary profile based on the user's resume and answers."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=512,
+            temperature=0.5
+        )
+        refined_context = response["choices"][0]["message"]["content"].strip()
+        db.update_career_profile_answers(resume_id, _json.dumps(answers), refined_context)
+        return {"refined_context": refined_context}
+    except Exception as e:
+        raise HTTPException(500, f"Refinement failed: {e}")
+
+
+@app.get("/api/resumes/{resume_id}/suggestions")
+def get_cached_suggestion_endpoint(resume_id: int, type: str):
+    suggestion = db.get_career_suggestion_by_type(resume_id, type)
+    if suggestion:
+        return {"content": suggestion["content"]}
+    return {"content": ""}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
