@@ -55,6 +55,7 @@ InfoAfterFile=
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} v{#AppVersion}
 CloseApplications=yes
+ConfirmUninstall=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -107,12 +108,15 @@ Filename: "{app}\{#AppExeName}"; \
   Check: WizardSilent
 
 [UninstallDelete]
-Type: dirifempty; Name: "{app}"
+Type: filesandsubdirs; Name: "{app}"
 
 ; ── Pascal code: download and deploy local AI GGUF model ──────────
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
+  UninstallConfirmed: Boolean;
+  DeletePersonalData: Boolean;
+  DeleteModelData: Boolean;
 
 procedure InitializeWizard;
 begin
@@ -167,6 +171,120 @@ begin
     DestPath := DestDir + '\qwen2.5-3b-instruct-q4_k_m.gguf';
     if FileExists(SrcPath) then begin
       CopyFile(SrcPath, DestPath, False);
+    end;
+  end;
+end;
+
+function InitializeUninstall: Boolean;
+var
+  Form: TSetupForm;
+  PromptLabel: TLabel;
+  DataCheck, ModelCheck: TNewCheckBox;
+  OKButton, CancelButton: TNewButton;
+  ResultCode: Integer;
+begin
+  Result := False; // Assume cancel by default
+  UninstallConfirmed := False;
+  DeletePersonalData := False;
+  DeleteModelData := False;
+
+  if UninstallSilent then begin
+    // Kill the application processes silently to release file locks
+    Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Result := True;
+    Exit;
+  end;
+
+  Form := CreateCustomForm;
+  Form.ClientWidth := ScaleX(420);
+  Form.ClientHeight := ScaleY(220);
+  Form.Caption := 'Confirm Uninstall';
+  Form.Position := poScreenCenter;
+  
+  PromptLabel := TLabel.Create(Form);
+  PromptLabel.Parent := Form;
+  PromptLabel.Left := ScaleX(16);
+  PromptLabel.Top := ScaleY(16);
+  PromptLabel.Width := ScaleX(388);
+  PromptLabel.Height := ScaleY(40);
+  PromptLabel.AutoSize := False;
+  PromptLabel.WordWrap := True;
+  PromptLabel.Caption := 'Are you sure you want to completely remove Personal Planner and all of its components?';
+  PromptLabel.Font.Style := [fsBold];
+
+  DataCheck := TNewCheckBox.Create(Form);
+  DataCheck.Parent := Form;
+  DataCheck.Left := ScaleX(16);
+  DataCheck.Top := ScaleY(70);
+  DataCheck.Width := ScaleX(388);
+  DataCheck.Caption := 'Delete all personal planner data (tasks, goals, work sessions, settings)';
+  DataCheck.Checked := True;
+
+  ModelCheck := TNewCheckBox.Create(Form);
+  ModelCheck.Parent := Form;
+  ModelCheck.Left := ScaleX(16);
+  ModelCheck.Top := ScaleY(100);
+  ModelCheck.Width := ScaleX(388);
+  ModelCheck.Caption := 'Delete the offline local AI LLM model (~2.0 GB)';
+  ModelCheck.Checked := False;
+
+  OKButton := TNewButton.Create(Form);
+  OKButton.Parent := Form;
+  OKButton.Left := ScaleX(240);
+  OKButton.Top := ScaleY(150);
+  OKButton.Width := ScaleX(75);
+  OKButton.Height := ScaleY(25);
+  OKButton.Caption := '&Yes';
+  OKButton.ModalResult := mrYes;
+  OKButton.Default := True;
+
+  CancelButton := TNewButton.Create(Form);
+  CancelButton.Parent := Form;
+  CancelButton.Left := ScaleX(325);
+  CancelButton.Top := ScaleY(150);
+  CancelButton.Width := ScaleX(75);
+  CancelButton.Height := ScaleY(25);
+  CancelButton.Caption := '&No';
+  CancelButton.ModalResult := mrNo;
+
+  Form.ActiveControl := CancelButton; // Safe default
+
+  if Form.ShowModal = mrYes then begin
+    UninstallConfirmed := True;
+    DeletePersonalData := DataCheck.Checked;
+    DeleteModelData := ModelCheck.Checked;
+
+    // Forcefully close any running instance of the app to release file locks
+    Exec('taskkill.exe', '/f /im PersonalPlanner.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+    Result := True;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir, ModelDir: string;
+begin
+  if CurUninstallStep = usPostUninstall then begin
+    DataDir := ExpandConstant('{userappdata}\PersonalPlanner');
+    ModelDir := DataDir + '\models';
+
+    // Delete LLM model if checked
+    if DeleteModelData then begin
+      DelTree(ModelDir, True, True, True);
+    end;
+
+    // Delete personal data if checked
+    if DeletePersonalData then begin
+      if DeleteModelData then begin
+        // If both checked, delete the entire directory
+        DelTree(DataDir, True, True, True);
+      end else begin
+        // If only personal data checked, delete files but leave models folder
+        DeleteFile(DataDir + '\planner.db');
+        DeleteFile(DataDir + '\planner.log');
+        DelTree(DataDir + '\backups', True, True, True);
+      end;
     end;
   end;
 end;
