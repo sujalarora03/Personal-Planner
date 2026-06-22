@@ -189,11 +189,15 @@ var
   DataCheck, ModelCheck: TNewCheckBox;
   OKButton: TNewButton;
 begin
-  // Set defaults
+  if UninstallSilent then begin
+    DeletePersonalData := False;
+    DeleteModelData := False;
+    Exit;
+  end;
+
+  // Set defaults for interactive uninstall
   DeletePersonalData := True;
   DeleteModelData := False;
-
-  if UninstallSilent then Exit;
 
   // Move the standard progress form off-screen temporarily
   UninstallProgressForm.Left := -1000;
