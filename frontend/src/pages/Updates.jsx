@@ -203,7 +203,7 @@ export default function Updates() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Installed Version</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: 'white', fontFamily: 'var(--font-display)' }}>
-                  v{installedVersion || updateInfo?.current || '0.8.18'}
+                  v{installedVersion || updateInfo?.current || '0.8.19'}
                 </div>
               </div>
               <button 

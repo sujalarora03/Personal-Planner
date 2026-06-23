@@ -345,18 +345,22 @@ class PersonalPlannerApp:
         self.window.show()
 
     def _quit_app(self, icon=None, item=None):
-        """Fully quit the app and free all RAM."""
+        """Fully quit — works from any thread (tray callback, etc.)."""
         self.tray.stop()
-        # Destroy PIP window first (if open) so webview has no orphan windows
+        # Destroy PIP window first (if open) so no orphan webview windows
         if hasattr(self, 'js_api') and self.js_api._pip_window is not None:
             try:
                 self.js_api._pip_window.destroy()
             except Exception:
                 pass
             self.js_api._pip_window = None
-        self.window.destroy()  # unblocks webview.start()
-        # Force-exit so the process is fully killed and RAM released
-        sys.exit(0)
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
+        # os._exit(0) kills ALL threads immediately from any thread.
+        # sys.exit() only exits the calling thread — useless from a tray callback.
+        os._exit(0)
 
     # ── Due-date notifications ─────────────────────────────────────────────
 

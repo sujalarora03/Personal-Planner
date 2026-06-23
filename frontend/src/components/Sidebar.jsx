@@ -121,7 +121,7 @@ export default function Sidebar({ timerRunning, timerTimeLeft, timerMode }) {
                 <span style={{
                   background: 'rgba(139,92,246,0.2)', color: '#c084fc',
                   padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                }}>v{version || '0.8.18'}</span>
+                }}>v{version || '0.8.19'}</span>
               </div>
             </div>
           )}
