@@ -59,6 +59,14 @@ function NoteEditor({ note, projects, onSave, onDelete, onClose }) {
     await onSave({ title, content, note_date: noteDate, project_id: projId ? +projId : null })
   }
 
+  const handleExport = (format) => {
+    if (!note?.id) return
+    const a = document.createElement('a')
+    a.href = `/api/notes/${note.id}/export?format=${format}`
+    a.click()
+    toast.success(`Note exported to ${format.toUpperCase()}`)
+  }
+
   const dirty = content !== (note?.content || '') || title !== (note?.title || '')
 
   return (
@@ -121,41 +129,32 @@ function NoteEditor({ note, projects, onSave, onDelete, onClose }) {
         />
       )}
 
-      const handleExport = (format) => {
-        if (!note?.id) return
-        const a = document.createElement('a')
-        a.href = `/api/notes/${note.id}/export?format=${format}`
-        a.click()
-        toast.success(`Note exported to ${format.toUpperCase()}`)
-      }
-
-      return (
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-danger btn-sm" onClick={() => onDelete(note?.id)}>
-              <Trash2 size={13} /> Delete
-            </button>
-            {note?.id && (
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => handleExport('markdown')} style={{ fontSize: 11, padding: '6px 10px' }} title="Export to Markdown (.md)">
-                  ⬇️ MD
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => handleExport('html')} style={{ fontSize: 11, padding: '6px 10px' }} title="Export to HTML (ideal for printing to PDF)">
-                  ⬇️ HTML
-                </button>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-purple" onClick={handleSave} disabled={!dirty && !!note?.id}>
-              <Save size={14} /> Save
-            </button>
-          </div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-danger btn-sm" onClick={() => onDelete(note?.id)}>
+            <Trash2 size={13} /> Delete
+          </button>
+          {note?.id && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => handleExport('markdown')} style={{ fontSize: 11, padding: '6px 10px' }} title="Export to Markdown (.md)">
+                ⬇️ MD
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => handleExport('html')} style={{ fontSize: 11, padding: '6px 10px' }} title="Export to HTML (ideal for printing to PDF)">
+                ⬇️ HTML
+              </button>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-purple" onClick={handleSave} disabled={!dirty && !!note?.id}>
+            <Save size={14} /> Save
+          </button>
         </div>
       </div>
-    )
-  }
+    </div>
+  )
+}
 
 
 export default function Notes() {
