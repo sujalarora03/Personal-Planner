@@ -529,35 +529,43 @@ function AppShell() {
     }
   }
 
-  // ── PIP state: native OS window via pywebview JS API ───────────────────
-  const [pipOpen, setPipOpen] = useState(false)
-  // Fallback: in-app draggable overlay (used in browser dev mode)
+  // ── PIP: native OS window (pywebview) or in-app overlay fallback (dev) ──
+  const [pipOpen, setPipOpen] = useState(false)       // logical: syncing active
+  const [pipOverlay, setPipOverlay] = useState(false) // fallback overlay only
   const pipDragRef = useRef(null)
   const pipPosRef = useRef({ x: null, y: null })
   const [pipPos, setPipPos] = useState({ x: null, y: null })
   const hasPywebview = () => !!(window.pywebview && window.pywebview.api)
 
+  // Ref that always holds latest timer values — avoids recreating intervals every second
+  const pipTimerRef = useRef({})
+  pipTimerRef.current = {
+    mode: pomodoroMode, timeLeft: pomodoroTimeLeft,
+    running: pomodoroRunning, focusMins, breakMins, longBreakMins,
+    sessions: pomodoroSessions,
+  }
+
   const startPip = useCallback(async () => {
     if (pipOpen) {
-      // Close
       if (hasPywebview()) {
         try { await window.pywebview.api.close_pip_window() } catch {}
       }
       setPipOpen(false)
+      setPipOverlay(false)
       setPipPos({ x: null, y: null })
       return
     }
-    // Open
     if (hasPywebview()) {
       try {
         await window.pywebview.api.create_pip_window()
-        setPipOpen(true)
-      } catch (e) {
+        setPipOpen(true) // start syncing; do NOT set pipOverlay
+      } catch {
         toast.error('Could not open PIP window')
       }
     } else {
-      // Dev-mode fallback: in-app overlay
+      // Browser / dev fallback: in-app draggable overlay
       setPipOpen(true)
+      setPipOverlay(true)
     }
   }, [pipOpen])
 
@@ -584,7 +592,8 @@ function AppShell() {
     e.preventDefault()
   }
 
-  // Sync timer state to backend + poll for commands (only when pip is open)
+  // Sync timer state to backend + poll commands — only depends on pipOpen
+  // Timer values come from ref so intervals are never recreated mid-session
   useEffect(() => {
     if (!pipOpen) return
     const syncInterval = setInterval(async () => {
@@ -592,29 +601,26 @@ function AppShell() {
         await fetch('/api/pip/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode: pomodoroMode, timeLeft: pomodoroTimeLeft,
-            running: pomodoroRunning, focusMins, breakMins, longBreakMins,
-            sessions: pomodoroSessions,
-          }),
+          body: JSON.stringify(pipTimerRef.current),
         })
       } catch {}
-    }, 800)
+    }, 500)
     const cmdInterval = setInterval(async () => {
       try {
         const res = await fetch('/api/pip/commands')
         if (!res.ok) return
         const cmds = await res.json()
+        if (!cmds.length) return
         cmds.forEach(cmd => {
-          if (cmd === 'pause')   setPomodoroRunning(false)
-          if (cmd === 'resume')  setPomodoroRunning(true)
-          if (cmd === 'skip')    skipPomodoro()
-          if (cmd === 'reset')   resetPomodoro()
+          if (cmd === 'pause')  setPomodoroRunning(false)
+          if (cmd === 'resume') setPomodoroRunning(true)
+          if (cmd === 'skip')   skipPomodoro()
+          if (cmd === 'reset')  resetPomodoro()
         })
       } catch {}
-    }, 900)
+    }, 400)
     return () => { clearInterval(syncInterval); clearInterval(cmdInterval) }
-  }, [pipOpen, pomodoroMode, pomodoroTimeLeft, pomodoroRunning, focusMins, breakMins, longBreakMins, pomodoroSessions])
+  }, [pipOpen]) // ← stable: no timer state in deps
 
   // Show PiP tip on start
   useEffect(() => {
@@ -1046,7 +1052,8 @@ function AppShell() {
           },
         }}
       />
-      {pipOpen && (
+      {/* Fallback in-app overlay — only in dev/browser mode, never alongside native window */}
+      {pipOverlay && (
         <div
           ref={pipDragRef}
           style={{
