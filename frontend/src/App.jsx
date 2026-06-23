@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast, { Toaster } from 'react-hot-toast'
@@ -529,76 +528,49 @@ function AppShell() {
     }
   }
 
-  // Picture-in-Picture window state
-  const [pipWindow, setPipWindow] = useState(null)
+  // Picture-in-Picture overlay state (in-app floating widget, no browser API)
+  const [pipOpen, setPipOpen] = useState(false)
+  const pipDragRef = useRef(null)
+  const pipPosRef = useRef({ x: null, y: null })
+  const [pipPos, setPipPos] = useState({ x: null, y: null })
 
-  const startPip = async () => {
-    if (!window.documentPictureInPicture) {
-      toast.error("Picture-in-Picture not supported in this environment")
-      return
+  const startPip = () => {
+    if (pipOpen) {
+      setPipOpen(false)
+      setPipPos({ x: null, y: null })
+    } else {
+      setPipOpen(true)
     }
-    if (pipWindow) {
-      pipWindow.close()
-      return
+  }
+
+  // Drag logic for floating PIP overlay
+  const startPipDrag = (e) => {
+    if (e.button !== 0) return
+    const el = pipDragRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const offsetX = e.clientX - rect.left
+    const offsetY = e.clientY - rect.top
+    const onMove = (mv) => {
+      const newX = mv.clientX - offsetX
+      const newY = mv.clientY - offsetY
+      pipPosRef.current = { x: newX, y: newY }
+      setPipPos({ x: newX, y: newY })
     }
-    try {
-      const pip = await window.documentPictureInPicture.requestWindow({
-        width: 320,
-        height: 180,
-      })
-
-      // Copy stylesheets to PiP document
-      const styleSheets = Array.from(document.styleSheets)
-      for (const sheet of styleSheets) {
-        try {
-          const cssRules = Array.from(sheet.cssRules)
-            .map(rule => rule.cssText)
-            .join('')
-          const style = document.createElement('style')
-          style.textContent = cssRules
-          pip.document.head.appendChild(style)
-        } catch (e) {
-          const link = document.createElement('link')
-          link.rel = 'stylesheet'
-          link.href = sheet.href
-          pip.document.head.appendChild(link)
-        }
-      }
-
-      // Add basic reset and style to PiP window
-      const baseStyle = pip.document.createElement('style')
-      baseStyle.textContent = `
-        body {
-          margin: 0;
-          padding: 0;
-          background: #0b0c16;
-          color: white;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-        }
-      `
-      pip.document.head.appendChild(baseStyle)
-
-      pip.addEventListener('pagehide', () => {
-        setPipWindow(null)
-      })
-
-      setPipWindow(pip)
-    } catch (err) {
-      console.error(err)
-      toast.error("Failed to open Picture-in-Picture")
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
     }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    e.preventDefault()
   }
 
   // Show PiP tip on start
   useEffect(() => {
     if (pomodoroRunning) {
       const tipShown = localStorage.getItem('pp_pip_tip_shown')
-      if (!tipShown && window.documentPictureInPicture) {
+      if (!tipShown) {
         toast('Tip: Click the PIP button to keep the timer always on top!', {
           icon: '📺',
           duration: 6000
@@ -892,7 +864,7 @@ function AppShell() {
               updateBreakMins={updateBreakMins}
               updateLongBreakMins={updateLongBreakMins}
               startPip={startPip}
-              pipActive={!!pipWindow}
+              pipActive={pipOpen}
               setPomodoroMode={setPomodoroMode}
               setPomodoroTimeLeft={setPomodoroTimeLeft}
               setPomodoroRunning={setPomodoroRunning}
@@ -1024,20 +996,68 @@ function AppShell() {
           },
         }}
       />
-      {pipWindow && createPortal(
-        <PomodoroPip 
-          mode={pomodoroMode}
-          timeLeft={pomodoroTimeLeft}
-          running={pomodoroRunning}
-          sessions={pomodoroSessions}
-          focusMins={focusMins}
-          breakMins={breakMins}
-          longBreakMins={longBreakMins}
-          setRunning={setPomodoroRunning}
-          reset={resetPomodoro}
-          skip={skipPomodoro}
-        />,
-        pipWindow.document.body
+      {pipOpen && (
+        <div
+          ref={pipDragRef}
+          style={{
+            position: 'fixed',
+            bottom: pipPos.x !== null ? 'auto' : 24,
+            right: pipPos.x !== null ? 'auto' : 24,
+            top: pipPos.y !== null ? pipPos.y : 'auto',
+            left: pipPos.x !== null ? pipPos.x : 'auto',
+            width: 320,
+            zIndex: 9999,
+            borderRadius: 18,
+            overflow: 'hidden',
+            background: 'linear-gradient(135deg, #111326 0%, #080914 100%)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)',
+            userSelect: 'none',
+          }}
+        >
+          {/* Drag handle bar */}
+          <div
+            onMouseDown={startPipDrag}
+            style={{
+              height: 28,
+              background: 'rgba(255,255,255,0.04)',
+              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 12px',
+              cursor: 'grab',
+            }}
+          >
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              📌 Focus Timer
+            </span>
+            <button
+              onClick={() => { setPipOpen(false); setPipPos({ x: null, y: null }) }}
+              style={{
+                background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.6)',
+                borderRadius: 6, width: 18, height: 18, cursor: 'pointer', fontSize: 11,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}
+              title="Close"
+            >✕</button>
+          </div>
+          {/* Timer content */}
+          <div style={{ height: 150 }}>
+            <PomodoroPip
+              mode={pomodoroMode}
+              timeLeft={pomodoroTimeLeft}
+              running={pomodoroRunning}
+              sessions={pomodoroSessions}
+              focusMins={focusMins}
+              breakMins={breakMins}
+              longBreakMins={longBreakMins}
+              setRunning={setPomodoroRunning}
+              reset={resetPomodoro}
+              skip={skipPomodoro}
+            />
+          </div>
+        </div>
       )}
       <AnimatePresence>
         {cmdPaletteOpen && (
