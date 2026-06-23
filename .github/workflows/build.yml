@@ -22,28 +22,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"   # 3.11 has better pre-built wheel support
+          cache: "pip"             # cache pip downloads between runs (~5 min saved)
 
       # ── 3. Set up Node.js ───────────────────────────────────────────
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"             # cache npm downloads between runs
+          cache-dependency-path: frontend/package-lock.json
 
       # ── 4. Install Python dependencies ──────────────────────────────
-      - name: Install Python dependencies (excluding llama-cpp-python)
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --quiet
+          # Install all deps except llama-cpp-python first (faster)
+          pip install -r requirements.txt --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --quiet --prefer-binary
 
       # ── 5. Install PyInstaller ───────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller --quiet --upgrade
+        run: pip install pyinstaller --quiet --upgrade --prefer-binary
 
       # ── 6. Build React frontend ─────────────────────────────────────
       - name: Build React frontend
         working-directory: frontend
         run: |
-          npm install --prefer-offline --no-audit --no-fund
+          npm ci --prefer-offline --no-audit --no-fund
           npm run build
 
       # ── 7. Bundle with PyInstaller ──────────────────────────────────
