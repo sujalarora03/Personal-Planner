@@ -219,6 +219,7 @@ class PersonalPlannerApp:
         title = "Personal Planner" if os.path.exists(dist_index) else "Personal Planner — Setup Required"
 
         # Create PyWebView window (doesn't open until webview.start())
+        self.js_api = PlannerApi()
         self.window = webview.create_window(
             title,
             f"http://127.0.0.1:{self.PORT}",
@@ -226,6 +227,7 @@ class PersonalPlannerApp:
             height=780,
             min_size=(960, 620),
             text_select=True,
+            js_api=self.js_api,
         )
         self.window.events.closing += self._on_closing
 
@@ -246,8 +248,7 @@ class PersonalPlannerApp:
         threading.Thread(target=self._lock_listener, args=(lock_srv,), daemon=True).start()
 
         # Start PyWebView — blocks main thread until all windows are destroyed
-        self.js_api = PlannerApi()
-        webview.start(debug=False, js_api=self.js_api)
+        webview.start(debug=False)
 
     def _lock_listener(self, srv: socket.socket):
         """Accept connections from second instances and show the window when signalled."""
