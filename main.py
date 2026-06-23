@@ -177,6 +177,12 @@ class PlannerApi:
             self._pip_window = None
         return {'ok': True}
 
+    def open_in_browser(self, url: str):
+        """Open a URL in the system default browser."""
+        import webbrowser
+        webbrowser.open(url)
+        return {'ok': True}
+
     def _on_pip_closing(self):
         self._pip_window = None
 
@@ -339,8 +345,18 @@ class PersonalPlannerApp:
         self.window.show()
 
     def _quit_app(self, icon=None, item=None):
+        """Fully quit the app and free all RAM."""
         self.tray.stop()
-        self.window.destroy()   # unblocks webview.start()
+        # Destroy PIP window first (if open) so webview has no orphan windows
+        if hasattr(self, 'js_api') and self.js_api._pip_window is not None:
+            try:
+                self.js_api._pip_window.destroy()
+            except Exception:
+                pass
+            self.js_api._pip_window = None
+        self.window.destroy()  # unblocks webview.start()
+        # Force-exit so the process is fully killed and RAM released
+        sys.exit(0)
 
     # ── Due-date notifications ─────────────────────────────────────────────
 

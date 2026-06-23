@@ -1,4 +1,4 @@
 # App version — bump this on every release and push to main.
 # The update checker reads this file from GitHub to compare against the installed version.
-APP_VERSION = "0.8.17"
+APP_VERSION = "0.8.18"
 GITHUB_REPO = "sujalarora03/Personal-Planner"

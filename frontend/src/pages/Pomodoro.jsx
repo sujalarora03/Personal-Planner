@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Pause, RotateCcw, SkipForward, Tv, Clock, CheckCircle2 } from 'lucide-react'
+import { Play, Pause, RotateCcw, SkipForward, Tv, Clock, CheckCircle2, Globe } from 'lucide-react'
 import { api } from '../api/client'
 
 const SESSIONS_BEFORE_LONG = 4
@@ -155,16 +155,29 @@ export default function Pomodoro({
               {running ? <><Pause size={17} /> Pause</> : <><Play size={17} /> {timeLeft === totalSecs() ? 'Start' : 'Resume'}</>}
             </motion.button>
             <button className="btn btn-ghost" title="Skip to next phase" onClick={skip}><SkipForward size={17} /></button>
-            {window.documentPictureInPicture && (
-              <button 
-                className={`btn ${pipActive ? 'btn-purple' : 'btn-ghost'}`} 
-                title="Mini Timer Window (Picture-in-Picture)" 
-                onClick={startPip}
-                style={pipActive ? { background: `${accent}22`, borderColor: accent, color: accent } : {}}
-              >
-                <Tv size={17} />
-              </button>
-            )}
+            {/* PIP toggle — always shown (pywebview API, no documentPictureInPicture needed) */}
+            <button
+              className={`btn ${pipActive ? 'btn-purple' : 'btn-ghost'}`}
+              title={pipActive ? 'Close mini timer' : 'Open mini timer (always on top)'}
+              onClick={startPip}
+              style={pipActive ? { background: `${accent}22`, borderColor: accent, color: accent } : {}}
+            >
+              <Tv size={17} />
+            </button>
+            {/* Open pip-view in default browser */}
+            <button
+              className="btn btn-ghost"
+              title="Open timer in browser (localhost:7432/pip-view)"
+              onClick={() => {
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.open_in_browser) {
+                  window.pywebview.api.open_in_browser('http://localhost:7432/pip-view')
+                } else {
+                  window.open('http://localhost:7432/pip-view', '_blank')
+                }
+              }}
+            >
+              <Globe size={17} />
+            </button>
           </div>
 
           {/* Session dots */}
