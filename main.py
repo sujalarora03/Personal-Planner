@@ -154,13 +154,13 @@ class PlannerApi:
             self._pip_window = webview.create_window(
                 'Focus Timer',
                 'http://127.0.0.1:7432/pip-view',
-                width=340,
-                height=220,
+                width=360,
+                height=200,
                 resizable=False,
                 on_top=True,
                 frameless=False,
                 text_select=False,
-                min_size=(340, 220),
+                min_size=(360, 200),
             )
             self._pip_window.events.closing += self._on_pip_closing
             return {'ok': True, 'action': 'created'}
