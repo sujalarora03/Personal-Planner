@@ -184,10 +184,10 @@ input:not([type="range"]), textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   background: rgba(255, 255, 255, 0.05);
-  border-color: var(--purple-border);
+  border-color: var(--accent-border);
   box-shadow: 
     inset 0 2px 4px rgba(0, 0, 0, 0.1),
-    0 0 16px var(--purple-glow);
+    0 0 16px var(--accent-glow);
 }
 input::placeholder, textarea::placeholder {
   color: rgba(255, 255, 255, 0.3);
@@ -216,14 +216,14 @@ select option {
 }
 
 .btn-purple {
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
   color: white;
-  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 15px var(--accent-glow);
 }
 .btn-purple:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
-  background: linear-gradient(135deg, #9065f7, #6b6ef2);
+  box-shadow: 0 8px 24px var(--accent-glow);
+  filter: brightness(1.1);
 }
 .btn-purple:active {
   transform: translateY(1px);
@@ -296,9 +296,10 @@ aside[data-collapsed='true'] .nav-btn:hover {
   transform: none;
 }
 .nav-btn.active {
-  background: rgba(139, 92, 246, 0.15);
+  background: var(--accent-glow);
   color: white;
   font-weight: 600;
+  border-left: 2px solid var(--accent);
 }
 
 /* Aurora Orbs */
@@ -458,7 +459,7 @@ aside[data-collapsed='true'] .nav-btn:hover {
   position: fixed;
   width: 550px;
   height: 550px;
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.055) 0%, rgba(6, 182, 212, 0.02) 45%, transparent 70%);
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
   z-index: 0;

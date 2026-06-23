@@ -1986,7 +1986,7 @@ ACHIEVEMENT_DEFS = [
 def get_achievements():
     try:
         with db.get_connection() as conn:
-            tasks_done   = conn.execute("SELECT COUNT(*) FROM tasks WHERE status='Done' AND NOT archived").fetchone()[0]
+            tasks_done   = conn.execute("SELECT COUNT(*) FROM tasks WHERE status='Done' AND (archived IS NULL OR archived != 1)").fetchone()[0]
             habit_logs   = conn.execute("SELECT COUNT(*) FROM habit_logs").fetchone()[0]
             max_streak   = 0
             habits = conn.execute("SELECT id FROM habits").fetchall()
@@ -1999,7 +1999,7 @@ def get_achievements():
                 max_streak = max(max_streak, s)
             notes_count   = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
             projects_count= conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
-            total_mins    = conn.execute("SELECT COALESCE(SUM(minutes),0) FROM work_hours").fetchone()[0]
+            total_mins    = conn.execute("SELECT COALESCE(SUM(duration_minutes),0) FROM work_sessions").fetchone()[0]
             total_hours   = total_mins / 60
             courses_total = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
             courses_done  = conn.execute("SELECT COUNT(*) FROM courses WHERE status='completed'").fetchone()[0]
@@ -2024,6 +2024,7 @@ def get_achievements():
         return [{ **a, "unlocked": check(a["id"]) } for a in ACHIEVEMENT_DEFS]
     except Exception as e:
         raise HTTPException(500, str(e))
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

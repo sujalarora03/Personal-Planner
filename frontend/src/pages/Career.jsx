@@ -13,6 +13,7 @@ export default function Career() {
   const [profileState, setProfileState] = useState(null) // null | { status, summary, refined_context, questions, answers }
   const [answers, setAnswers] = useState(['', '', ''])
   const [refining, setRefining] = useState(false)
+  const [refreshingQuestions, setRefreshingQuestions] = useState(false)
   const [showRefineForm, setShowRefineForm] = useState(false)
 
   // Analysis states
@@ -84,6 +85,8 @@ export default function Career() {
   }
 
   const initProfileContext = async (resumeId) => {
+    setRefreshingQuestions(true)
+    setAnswers(['', '', ''])
     try {
       const data = await api.initCareerProfile(resumeId)
       const state = {
@@ -94,11 +97,12 @@ export default function Career() {
         answers: []
       }
       setProfileState(state)
-      setAnswers(['', '', ''])
       setShowRefineForm(true)
-      toast.success('Resume analyzed! Initial context summary created.')
+      toast.success('Fresh questions generated!')
     } catch (e) {
       toast.error('Failed to analyze resume profile')
+    } finally {
+      setRefreshingQuestions(false)
     }
   }
 
@@ -374,11 +378,14 @@ export default function Career() {
                           </div>
                           <button
                             className="btn btn-ghost btn-sm"
-                            style={{ fontSize: 11, padding: '4px 8px', opacity: 0.7 }}
+                            style={{ fontSize: 11, padding: '4px 8px', opacity: refreshingQuestions ? 1 : 0.7 }}
                             onClick={() => initProfileContext(activeId)}
+                            disabled={refreshingQuestions}
                             title="Generate fresh questions from your resume"
                           >
-                            ↺ New Questions
+                            {refreshingQuestions ? (
+                              <><RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} /> Generating…</>
+                            ) : '↺ New Questions'}
                           </button>
                         </div>
                         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 14, lineHeight: 1.5 }}>
