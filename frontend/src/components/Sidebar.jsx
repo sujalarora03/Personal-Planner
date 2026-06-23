@@ -45,7 +45,7 @@ const NAV_GROUPS = [
       { to: '/relax',        icon: Headphones,   label: 'Relax' },
       { to: '/settings',     icon: Settings,     label: 'Settings' },
       { to: '/updates',      icon: ArrowUpCircle,label: 'Updates & Help' },
-      { to: '/about',        icon: Heart,        label: 'About & Feedback' },
+      { to: '/app-info',     icon: Heart,        label: 'About & Feedback' },
     ],
   },
 ]

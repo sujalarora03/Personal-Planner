@@ -304,7 +304,7 @@ function AnimatedRoutes({
             />
           } />
           <Route path="/updates"    element={<Updates />} />
-          <Route path="/about"     element={<About />} />
+          <Route path="/app-info"    element={<About />} />
           <Route path="/weekly-review" element={<WeeklyReview />} />
           <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
