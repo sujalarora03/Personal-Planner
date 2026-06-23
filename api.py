@@ -2207,6 +2207,40 @@ def export_database():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PIP (PICTURE-IN-PICTURE) STATE SYNC
+# Shared in-memory state between main window and native PIP window.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_pip_state: dict = {}
+_pip_commands: list = []
+
+@app.post("/api/pip/sync")
+def pip_sync(body: dict):
+    """Main app pushes live timer state here every second."""
+    global _pip_state
+    _pip_state = body
+    return {"ok": True}
+
+@app.get("/api/pip/state")
+def pip_state_get():
+    """PIP window polls this to read the current timer state."""
+    return _pip_state
+
+@app.post("/api/pip/command")
+def pip_send_command(body: dict):
+    """PIP window sends control commands (pause/resume/skip/reset) here."""
+    _pip_commands.append(body.get("cmd", ""))
+    return {"ok": True}
+
+@app.get("/api/pip/commands")
+def pip_get_commands():
+    """Main app polls this to receive commands from the PIP window."""
+    cmds = list(_pip_commands)
+    _pip_commands.clear()
+    return cmds
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SPA FALLBACK — must be LAST so all /api/* routes are matched first
 # ═══════════════════════════════════════════════════════════════════════════════
 

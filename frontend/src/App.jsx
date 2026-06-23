@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast, { Toaster } from 'react-hot-toast'
@@ -29,6 +29,7 @@ import CalendarView from './pages/CalendarView'
 import Achievements from './pages/Achievements'
 import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
+import PipView   from './pages/PipView'
 
 // Apply saved accent theme on startup (before React render)
 ;(() => {
@@ -84,8 +85,8 @@ function PomodoroPip({
 
   return (
     <div style={{
-      width: '100vw',
-      height: '100vh',
+      width: '100%',
+      height: '100%',
       display: 'flex',
       alignItems: 'center',
       padding: '0 20px',
@@ -528,22 +529,39 @@ function AppShell() {
     }
   }
 
-  // Picture-in-Picture overlay state (in-app floating widget, no browser API)
+  // ── PIP state: native OS window via pywebview JS API ───────────────────
   const [pipOpen, setPipOpen] = useState(false)
+  // Fallback: in-app draggable overlay (used in browser dev mode)
   const pipDragRef = useRef(null)
   const pipPosRef = useRef({ x: null, y: null })
   const [pipPos, setPipPos] = useState({ x: null, y: null })
+  const hasPywebview = () => !!(window.pywebview && window.pywebview.api)
 
-  const startPip = () => {
+  const startPip = useCallback(async () => {
     if (pipOpen) {
+      // Close
+      if (hasPywebview()) {
+        try { await window.pywebview.api.close_pip_window() } catch {}
+      }
       setPipOpen(false)
       setPipPos({ x: null, y: null })
+      return
+    }
+    // Open
+    if (hasPywebview()) {
+      try {
+        await window.pywebview.api.create_pip_window()
+        setPipOpen(true)
+      } catch (e) {
+        toast.error('Could not open PIP window')
+      }
     } else {
+      // Dev-mode fallback: in-app overlay
       setPipOpen(true)
     }
-  }
+  }, [pipOpen])
 
-  // Drag logic for floating PIP overlay
+  // Drag logic for fallback in-app overlay (dev mode only)
   const startPipDrag = (e) => {
     if (e.button !== 0) return
     const el = pipDragRef.current
@@ -565,6 +583,38 @@ function AppShell() {
     window.addEventListener('mouseup', onUp)
     e.preventDefault()
   }
+
+  // Sync timer state to backend + poll for commands (only when pip is open)
+  useEffect(() => {
+    if (!pipOpen) return
+    const syncInterval = setInterval(async () => {
+      try {
+        await fetch('/api/pip/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: pomodoroMode, timeLeft: pomodoroTimeLeft,
+            running: pomodoroRunning, focusMins, breakMins, longBreakMins,
+            sessions: pomodoroSessions,
+          }),
+        })
+      } catch {}
+    }, 800)
+    const cmdInterval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/pip/commands')
+        if (!res.ok) return
+        const cmds = await res.json()
+        cmds.forEach(cmd => {
+          if (cmd === 'pause')   setPomodoroRunning(false)
+          if (cmd === 'resume')  setPomodoroRunning(true)
+          if (cmd === 'skip')    skipPomodoro()
+          if (cmd === 'reset')   resetPomodoro()
+        })
+      } catch {}
+    }, 900)
+    return () => { clearInterval(syncInterval); clearInterval(cmdInterval) }
+  }, [pipOpen, pomodoroMode, pomodoroTimeLeft, pomodoroRunning, focusMins, breakMins, longBreakMins, pomodoroSessions])
 
   // Show PiP tip on start
   useEffect(() => {
@@ -1071,7 +1121,12 @@ function AppShell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppShell />
+      <Routes>
+        {/* Standalone PIP window — no sidebar, no shell */}
+        <Route path="/pip-view" element={<PipView />} />
+        {/* Main app shell handles all other routes */}
+        <Route path="/*" element={<AppShell />} />
+      </Routes>
     </BrowserRouter>
   )
 }

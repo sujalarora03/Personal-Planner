@@ -133,6 +133,54 @@ def ensure_icon_file(base_dir: str) -> str:
     return ico_path
 
 
+class PlannerApi:
+    """
+    Methods exposed to JavaScript via window.pywebview.api.*
+    Must be created on the main thread; pywebview marshals the calls safely.
+    """
+    def __init__(self):
+        self._pip_window = None
+
+    def create_pip_window(self):
+        """Open an always-on-top native OS window showing the PIP timer."""
+        try:
+            if self._pip_window is not None:
+                try:
+                    self._pip_window.show()
+                except Exception:
+                    self._pip_window = None
+                else:
+                    return {'ok': True, 'action': 'shown'}
+            self._pip_window = webview.create_window(
+                'Focus Timer',
+                'http://127.0.0.1:7432/pip-view',
+                width=340,
+                height=220,
+                resizable=False,
+                on_top=True,
+                frameless=False,
+                text_select=False,
+                min_size=(340, 220),
+            )
+            self._pip_window.events.closing += self._on_pip_closing
+            return {'ok': True, 'action': 'created'}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def close_pip_window(self):
+        """Close the PIP window if open."""
+        if self._pip_window is not None:
+            try:
+                self._pip_window.destroy()
+            except Exception:
+                pass
+            self._pip_window = None
+        return {'ok': True}
+
+    def _on_pip_closing(self):
+        self._pip_window = None
+
+
 class PersonalPlannerApp:
     PORT = 7432
 
@@ -198,7 +246,8 @@ class PersonalPlannerApp:
         threading.Thread(target=self._lock_listener, args=(lock_srv,), daemon=True).start()
 
         # Start PyWebView — blocks main thread until all windows are destroyed
-        webview.start(debug=False)
+        self.js_api = PlannerApi()
+        webview.start(debug=False, js_api=self.js_api)
 
     def _lock_listener(self, srv: socket.socket):
         """Accept connections from second instances and show the window when signalled."""
